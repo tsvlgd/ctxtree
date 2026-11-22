@@ -41,7 +41,7 @@ flowchart TB
 
 - Global, user owned, in git: `GLOBAL.md`, `PROFILE.md`, `registry.md`, `notes/`. The installer only rewrites the text between `<!-- ctxtree:begin -->` and `<!-- ctxtree:end -->`.
 - Global, pack owned, ignored by git: `pack/`, `backups/<time>/`, `manifest`, `agents`.
-- Per project, committed with the code: `memory/` and `docs/`.
+- Per project: `docs/` committed with the code; `memory/` committed too by default, or kept on this machine only with `ctxtree init --private` (D10).
 - Stop hook state: one small file per session under `$XDG_RUNTIME_DIR/ctxtree-<uid>/` holding the HEAD it last blocked on.
 
 ## Boundaries and constraints

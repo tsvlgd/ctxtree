@@ -145,6 +145,19 @@ Run `/learn` at milestones, `/task <goal>` for anything with more than three ste
 
 Memory is found by one rule for every agent: the nearest `memory/INDEX.md` from the working directory up to the git root. Everything is a file you can read, diff and commit.
 
+### Share or keep private
+
+Each project chooses once; `/memory-init` asks.
+
+| | Shared (default) | Private (`ctxtree init --private`) |
+| --- | --- | --- |
+| Good for | teams, open source, more than one machine | solo work, client code, public repos with private notes |
+| Teammates' agents get the context | yes | no |
+| Backed up and reviewed | yes, by git and pull requests | no, it lives on this machine only |
+| Staleness checks | by commits | by file times; works the same |
+
+Private lists `memory/` in `.git/info/exclude`, which is never committed, so the repo's `.gitignore` stays untouched. It also works on an existing tree; if memory is already tracked, it prints the one command that stops sharing it and leaves your files on disk. The starting files live in [`templates/memory/`](templates/memory).
+
 <p align="center">
   <img src="docs/diagrams/session-lifecycle.png" alt="Session lifecycle: start, work, stop hook, learn, commit guard" width="800">
 </p>
