@@ -86,7 +86,12 @@ t "old GEMINI.md rules imported too" grep -qx 'my old gemini rules' "$AH/GLOBAL.
 t "imported rules sit above the managed block" sh -c "awk '/my old claude rules/ {r=NR} /ctxtree:begin/ {b=NR} END {exit !(r && b && r < b)}' '$AH/GLOBAL.md'"
 t "your own /task command kept, not replaced" sh -c "test ! -L '$HOME/.claude/commands/task.md' && grep -qx 'my own task' '$HOME/.claude/commands/task.md'"
 t "your own opencode /promote kept" grep -qx 'my own promote' "$HOME/.config/opencode/commands/promote.md"
-t "install log names what it kept" grep -q 'kept your own .*task.md' "$SANDBOX/install.log"
+t "install summary names what it kept" sh -c "grep -q '^  Kept yours' '$SANDBOX/install.log' && grep -qF '~/.claude/commands/task.md' '$SANDBOX/install.log'"
+t "install summary names the imported rules" grep -qF 'copied into GLOBAL.md from ~/.claude/CLAUDE.md' "$SANDBOX/install.log"
+t "install output is a short summary" sh -c "test \$(wc -l < '$SANDBOX/install.log') -lt 30 && ! grep -q '^linked ' '$SANDBOX/install.log'"
+t "install summary shows ~ paths, not the full home" sh -c "! grep -qF '$HOME/' '$SANDBOX/install.log'"
+t "every action is in the full log" grep -q '^linked ' "$AH/install.log"
+t "the full log is ignored by the global git" git -C "$AH" check-ignore -q install.log
 t "dry run says it would keep your own items" grep -q 'would keep your own' "$SANDBOX/dry.log"
 t "GLOBAL.md managed block rendered" sh -c "grep -q 'ctxtree:begin' '$AH/GLOBAL.md' && grep -q '$(native "$AH")/PROFILE.md' '$AH/GLOBAL.md' && ! grep -q '{{' '$AH/GLOBAL.md'"
 S="$HOME/.claude/settings.json"
@@ -129,6 +134,8 @@ t "manifest has no duplicate lines" test "$(wc -l < "$AH/manifest")" = "$manifes
 t "profile edit kept" grep -qx -- "- my own rule" "$AH/PROFILE.md"
 t "user section edit kept" grep -qx -- "- always write tests first" "$AH/GLOBAL.md"
 t "managed block restored" sh -c "! grep -q tampered '$AH/GLOBAL.md' && grep -q '^- Lookup: ' '$AH/GLOBAL.md'"
+bash "$REPO/install.sh" --verbose > "$SANDBOX/install3.log" 2>&1
+t "--verbose prints every action" grep -q '^refreshed managed block' "$SANDBOX/install3.log"
 t "rules imported once across reinstalls" test "$(grep -cx 'my old claude rules' "$AH/GLOBAL.md")" = 1
 dupes="$(grep -rlx 'my old claude rules' "$AH/backups")"
 t "foreign files not backed up twice" test "$(printf '%s\n' "$dupes" | grep -c .)" = 1
@@ -145,6 +152,14 @@ t "nested repo does not see the parent tree" test -z "$("$AM" where "$SANDBOX/w/
 t "non git folder with a tree finds it" test -n "$("$AM" where "$SANDBOX/w/plain")"
 t "non git subfolder does not walk up" test -z "$("$AM" where "$SANDBOX/w/plain/sub")"
 t "folder without a tree finds nothing" test "$(cd "$SANDBOX/w/empty" && "$AM" status)" = none
+mkrepo "$SANDBOX/w/pretty"
+printf '# Active task: ship it\n\n## Phases\n- [x] 1. a\n- [ ] 2. b  <- next: run the tests\n' > "$SANDBOX/w/pretty/memory/active-task.md"
+P="$(cd "$SANDBOX/w/pretty" && CTXTREE_PRETTY=1 NO_COLOR=1 "$AM" status)"
+t "status at a terminal keeps the machine word first" sh -c "printf '%s\n' \"\$1\" | head -n 1 | grep -Eqx 'fresh|stale [0-9]+'" _ "$P"
+t "status at a terminal shows project, memory and next step" sh -c "printf '%s\n' \"\$1\" | grep -q '^project  pretty' && printf '%s\n' \"\$1\" | grep -q '^memory   updated' && printf '%s\n' \"\$1\" | grep -qx 'next     run the tests'" _ "$P"
+t "NO_COLOR turns colour off" sh -c "! printf '%s' \"\$1\" | grep -q \"\$(printf '\\033')\"" _ "$P"
+t "colour only for a person at a terminal" sh -c "cd '$SANDBOX/w/pretty' && NO_COLOR= TERM=xterm CTXTREE_PRETTY=1 '$AM' status | grep -q \"\$(printf '\\033')\" && ! '$AM' status | grep -q \"\$(printf '\\033')\""
+t "piped doctor output stays plain" sh -c "! '$AM' doctor | grep -q \"\$(printf '\\033')\" && '$AM' doctor | grep -q '^OK    '"
 
 group "sync: staleness, session start, stop hook"
 R="$SANDBOX/w/app"
@@ -260,8 +275,8 @@ group "no symlinks (Windows without Developer Mode)"
   mkdir -p "$HOME/.claude" "$HOME/.config/opencode" "$HOME/.codex" "$HOME/.gemini"; : > "$GIT_CONFIG_GLOBAL"
   echo "old rules" > "$HOME/.claude/CLAUDE.md"
   A2="$HOME/.config/ctxtree"; M2="$A2/pack/bin/ctxtree"
-  bash "$REPO/install.sh" > "$SANDBOX/install-nolinks.log" 2>&1
-  t "install without symlinks exits 0" grep -q 'Done' "$SANDBOX/install-nolinks.log"
+  bash "$REPO/install.sh" > "$SANDBOX/install-nolinks.log" 2>&1; rc=$?
+  t "install without symlinks exits 0" test "$rc" = 0
   t "CLAUDE.md is a managed copy, not a link" sh -c "test ! -L '$HOME/.claude/CLAUDE.md' && grep -q 'ctxtree:managed' '$HOME/.claude/CLAUDE.md'"
   t "all four rules files are managed copies" test "$(grep -l 'ctxtree:managed' "$HOME/.claude/CLAUDE.md" "$HOME/.config/opencode/AGENTS.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md" | wc -l | tr -d ' ')" = 4
   t "skills are real folders" sh -c "test -d '$HOME/.claude/skills/memory-tree' -a ! -L '$HOME/.claude/skills/memory-tree' -a -f '$HOME/.claude/skills/memory-tree/SKILL.md'"

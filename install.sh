@@ -15,6 +15,8 @@
 #   --no-git-hook        do not set up the global git pre-commit guard
 #   --no-git             do not git init the global folder
 #   --dry-run            print every action, change nothing
+#   --verbose            print every action while installing (default: a short
+#                        summary; the full list goes to $CTXTREE_HOME/install.log)
 #   --uninstall          undo everything recorded in the manifest
 #   --purge              with --uninstall, also delete the global folder
 #   -h, --help
@@ -39,7 +41,7 @@ COMMANDS="learn memory-init task catchup promote project-docs"
 SKILLS="memory-tree project-docs"
 VERSION="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$REPO/bin/ctxtree")"
 
-agents=""; link=0; keep_auto=0; claude_plugin=0; git_hook=1; git_init=1; dry=0; uninstall=0; purge=0
+agents=""; link=0; keep_auto=0; claude_plugin=0; git_hook=1; git_init=1; dry=0; uninstall=0; purge=0; verbose=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --agents) agents="${2//,/ }"; shift 2 ;;
@@ -49,14 +51,29 @@ while [ $# -gt 0 ]; do
     --no-git-hook) git_hook=0; shift ;;
     --no-git) git_init=0; shift ;;
     --dry-run) dry=1; shift ;;
+    --verbose) verbose=1; shift ;;
     --uninstall) uninstall=1; shift ;;
     --purge) purge=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
 
-say() { printf '%s\n' "$*"; }
+# Output. A real install prints a short summary and writes every action to $LOG;
+# --dry-run, --verbose and --uninstall print every action as they happen.
+quiet=0
+if [ "$dry" = 0 ] && [ "$uninstall" = 0 ] && [ "$verbose" = 0 ]; then quiet=1; fi
+LOG="$CTXTREE_HOME/install.log"
+say() { if [ "$quiet" = 1 ]; then printf '%s\n' "$*" >> "$LOG"; else printf '%s\n' "$*"; fi; }
+out() { printf '%s\n' "$*"; }
+tilde() { case "$1" in "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;; *) printf '%s' "$1" ;; esac; }
+KEPT=""; IMPORTED=""; NOTES=""; WIRED=""
+# note <text>: a line the user must see; printed now, or kept for the summary.
+note() { say "$*"; NOTES="$NOTES$*
+"; return 0; }
+# wired <agent label> <what>: one summary row per agent.
+wired() { WIRED="$WIRED$(printf '  %-13s %s' "$1" "$2")
+"; return 0; }
 win=0; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) win=1 ;; esac
 # native <path>: the form other programs expect (C:/x on Windows, unchanged elsewhere).
 native() { if [ "$win" = 1 ] && command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
@@ -94,6 +111,7 @@ keep_foreign() {
   { [ -e "$1" ] || [ -L "$1" ]; } || return 1
   is_ours "$1" && return 1
   say "$([ "$dry" = 1 ] && echo 'would keep' || echo 'kept') your own $1 (ctxtree's version stays in the pack)"
+  KEPT="$KEPT $(tilde "$1")"
   return 0
 }
 
@@ -110,6 +128,7 @@ import_rules() {
   HDR="<!-- ctxtree:imported from $from (cksum $sum). Your rules from before ctxtree, still active. Edit or trim freely. -->" BODY="$content" awk '
     /<!-- ctxtree:begin -->/ && !done {print ENVIRON["HDR"]; print ENVIRON["BODY"]; print ""; done=1} {print}' "$g" > "$g.tmp" && mv "$g.tmp" "$g"
   say "copied your rules from $from into $g (they keep loading)"
+  IMPORTED="$IMPORTED $from"
 }
 
 # link_rules <path>: point an agent's rules file at GLOBAL.md, carrying over its rules.
@@ -177,7 +196,7 @@ json_edit() {
   mkdir -p "$(dirname "$f")"
   [ -s "$f" ] || { [ "$uninstall" = 1 ] || record "json-created $f"; echo '{}' > "$f"; }
   if ! jq empty "$f" >/dev/null 2>&1; then
-    say "SKIP $f is not plain JSON (comments?). Add the ctxtree entries by hand; see README."
+    note "SKIP $(tilde "$f") is not plain JSON (comments?). Add the ctxtree entries by hand; see README."
     return 0
   fi
   [ -e "$BACKUP/${f#"$HOME"/}" ] || { mkdir -p "$BACKUP/$(dirname "${f#"$HOME"/}")"; cp "$f" "$BACKUP/${f#"$HOME"/}"; }
@@ -221,12 +240,14 @@ if [ "$uninstall" = 1 ]; then
     rm -f "$CTXTREE_HOME/agents" "$COPIES"
   fi
   if [ "$purge" = 1 ]; then run rm -rf "$CTXTREE_HOME"; say "purged $CTXTREE_HOME"; fi
+  [ "$dry" = 1 ] || rm -f "$LOG"
   say "uninstalled. Your GLOBAL.md, PROFILE.md and registry.md are kept unless --purge."
   exit 0
 fi
 
 # ------------------------------------------------------------------ install
 need git; need jq; need awk; need sed
+if [ "$quiet" = 1 ]; then mkdir -p "$CTXTREE_HOME" && : > "$LOG"; fi
 if [ -z "$agents" ]; then
   [ -d "$HOME/.claude" ] && agents="$agents claude"
   [ -d "$HOME/.config/opencode" ] && agents="$agents opencode"
@@ -297,8 +318,13 @@ fi
 # 4. Git for the global folder, so every global change is a reviewable diff.
 if [ "$git_init" = 1 ] && [ ! -d "$CTXTREE_HOME/.git" ]; then
   run git -C "$CTXTREE_HOME" init -q
-  [ "$dry" = 1 ] || printf 'pack/\nbackups/\nmanifest*\nagents\n' > "$CTXTREE_HOME/.gitignore"
+  [ "$dry" = 1 ] || printf 'pack/\nbackups/\nmanifest*\nagents\ninstall.log\n' > "$CTXTREE_HOME/.gitignore"
   say "git initialised $CTXTREE_HOME (nothing committed)"
+fi
+
+# The install log is local detail, never part of the global folder's history.
+if [ "$dry" = 0 ] && [ -f "$CTXTREE_HOME/.gitignore" ] && ! grep -qx 'install.log' "$CTXTREE_HOME/.gitignore"; then
+  echo 'install.log' >> "$CTXTREE_HOME/.gitignore"
 fi
 
 # 5. Skills shared by Codex and OpenCode (both read ~/.agents/skills).
@@ -314,6 +340,7 @@ for a in $agents; do
       if [ "$claude_plugin" = 1 ]; then
         say "claude: commands, skills and hooks come from the plugin. In Claude Code run:"
         say "      /plugin marketplace add $REPO   then   /plugin install ctxtree@ctxtree"
+        note "Claude Code: in Claude Code run /plugin marketplace add $REPO, then /plugin install ctxtree@ctxtree"
       else
         for c in $COMMANDS; do keep_foreign "$HOME/.claude/commands/$c.md" || place_link "$PACK/commands/$c.md" "$HOME/.claude/commands/$c.md"; done
         for s in $SKILLS; do keep_foreign "$HOME/.claude/skills/$s" || place_link "$PACK/skills/$s" "$HOME/.claude/skills/$s"; done
@@ -326,6 +353,7 @@ for a in $agents; do
         grep -qxF "json-automemory $HOME/.claude/settings.json" "$MANIFEST" 2>/dev/null || record "json-automemory $HOME/.claude/settings.json"
         say "claude: auto memory off (the memory tree replaces it)"
       fi
+      wired "Claude Code" "rules$([ "$claude_plugin" = 1 ] && echo ', commands, skills and hooks from the plugin' || echo ', commands, skills, session hooks')$([ "$keep_auto" = 0 ] && echo '; auto memory off (the memory tree replaces it)')"
       ;;
     opencode)
       oc="$HOME/.config/opencode"
@@ -335,6 +363,7 @@ for a in $agents; do
       json_edit "$oc/opencode.json" '.instructions = (((.instructions // []) - $ours) + $ours)' --argjson ours "$ours"
       grep -qF "json-instructions $oc/opencode.json" "$MANIFEST" 2>/dev/null || record "json-instructions $oc/opencode.json $ours"
       say "opencode: instructions load PROFILE.md, memory/INDEX.md, memory/active-task.md"
+      wired "OpenCode" "rules, commands, skills, loads your profile and project memory"
       ;;
     codex)
       cx="${CODEX_HOME:-$HOME/.codex}"
@@ -343,6 +372,7 @@ for a in $agents; do
       json_edit "$cx/hooks.json" "$HOOK_ADD" --arg start "$CODEX_CMD context --profile" --arg stop "$CODEX_CMD context --stop"
       grep -qxF "json-hooks $cx/hooks.json" "$MANIFEST" 2>/dev/null || record "json-hooks $cx/hooks.json"
       say "codex: hooks written; open Codex and approve them once in /hooks"
+      wired "Codex" "rules, prompts, skills, session hooks (approve once in Codex: /hooks)"
       ;;
     antigravity)
       gm="$HOME/.gemini"
@@ -350,6 +380,7 @@ for a in $agents; do
       for s in $SKILLS; do keep_foreign "$gm/config/skills/$s" || place_link "$PACK/skills/$s" "$gm/config/skills/$s"; done
       for c in $COMMANDS; do keep_foreign "$gm/config/global_workflows/$c.md" || strip_key argument-hint < "$PACK/commands/$c.md" | place_file "$gm/config/global_workflows/$c.md"; done
       say "antigravity: GEMINI.md (also read by Gemini CLI), skills and workflows set; run /catchup at session start"
+      wired "Antigravity" "rules, skills, workflows (run /catchup at session start)"
       ;;
   esac
 done
@@ -363,11 +394,34 @@ if [ "$git_hook" = 1 ]; then
     grep -qxF "gitconfig hooksPath" "$MANIFEST" 2>/dev/null || record "gitconfig hooksPath"
     say "git: global core.hooksPath -> $PACK/git-hooks"
   elif [ "$current" != "$(native "$PACK/git-hooks")" ]; then
-    say "git: core.hooksPath is already $current. Add this line to its pre-commit to enable the memory guard:"
-    say "      \"$AM\" check --staged || exit 1"
+    note "Git: core.hooksPath is already $current. To turn on the memory guard, add this line to its pre-commit:"
+    note "      \"$AM\" check --staged || exit 1"
   fi
 fi
 
+if [ "$quiet" = 1 ]; then
+  out "ctxtree $VERSION installed"
+  out ""
+  printf '%s' "$WIRED"
+  if [ "$git_hook" = 0 ]; then guard="off (--no-git-hook)"
+  elif [ "$(git config --global core.hooksPath 2>/dev/null)" = "$(native "$PACK/git-hooks")" ]; then guard="on in every repo; each repo's own hooks still run"
+  else guard="not set (see notes)"; fi
+  printf '  %-13s %s\n' "Git guard" "$guard"
+  first="Kept yours"; for k in $KEPT; do printf '  %-13s %s\n' "$first" "$k"; first=""; done
+  [ -z "$IMPORTED" ] || printf '  %-13s %s\n' "Your rules" "copied into GLOBAL.md from$(printf ' %s' $IMPORTED | sed 's/ /, /g; s/^, / /'), so they keep loading"
+  nb="$( [ -d "$BACKUP" ] && find "$BACKUP" \( -type f -o -type l \) | wc -l | tr -d ' ' )"
+  [ "${nb:-0}" -gt 0 ] && printf '  %-13s %s\n' "Backups" "$nb file(s) in $(tilde "$BACKUP") (--uninstall restores them)"
+  if [ -n "$NOTES" ]; then out ""; out "Notes:"; printf '%s' "$NOTES" | sed 's/^/  /'; fi
+  out ""
+  out "Next:"
+  out "  1. Fill in $(tilde "$CTXTREE_HOME")/PROFILE.md and the top of GLOBAL.md (yours to edit)."
+  out "  2. Restart your agent sessions, then run /memory-init at a project's git root."
+  out "  3. Check any time: ctxtree doctor"
+  case ":$PATH:" in *":$BIN_DIR:"*) ;; *) out "  Add $(tilde "$BIN_DIR") to PATH so agents can run ctxtree.";; esac
+  out ""
+  out "Full log: $(tilde "$LOG")"
+  exit 0
+fi
 say ""
 say "Done. Next:"
 say "  1. Fill in $CTXTREE_HOME/PROFILE.md and the top of GLOBAL.md (yours to edit)."
