@@ -19,4 +19,4 @@ Project: {{PROJECT}}. Describe only this project here; never mention other proje
 
 ## Memory
 
-Project facts, decisions and state live in `memory/` (the memory tree standard). Write a fact the moment it becomes true; one dated line in `memory/log.md` per session or milestone; commit memory with the work.
+Project facts, decisions and state live in `memory/` (the memory tree standard). Write a fact the moment it becomes true; one dated line in `memory/log.md` per session or milestone; commit memory with the work unless it is private (listed in `.git/info/exclude`).

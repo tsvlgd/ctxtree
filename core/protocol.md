@@ -18,7 +18,7 @@ If the profile above is not already in your context, read that file before your 
 - Capture: the moment a decision, fact, id or correction becomes true, write it to its topic file with its why. Correct in place. Never store secret values, only where they live.
 - Plan in files: a task with more than about three phases keeps Goal, Phases, Findings, Decisions and Errors in `memory/active-task.md` (`/task`). Read it again before major decisions, save findings after every two searches or reads, log every failure, delete it when done.
 - Sync: when `<memory-stale>` appears or `ctxtree status` says stale, update the topic file, `log.md` and INDEX before or alongside the task.
-- Session end or milestone: `/learn` (one log line, INDEX "where we are" and "next", `ctxtree check`, commit memory with the work).
+- Session end or milestone: `/learn` (one log line, INDEX "where we are" and "next", `ctxtree check`, commit memory with the work unless it is private).
 - Global write policy: `GLOBAL.md`, `PROFILE.md`, `registry.md` and `notes/` change only when the user is explicit ("always", "from now on", "everywhere") or after the user confirms a proposal (`/promote`). Never write them silently, never put project facts there, never edit inside this managed block.
 - Guardrails: never create memory or AGENTS.md above a project root. `ctxtree check` and the git pre-commit guard block secrets in memory files; fix, never bypass.
 - Commands: `/catchup`, `/task`, `/learn`, `/promote`, `/memory-init`, `/project-docs`.

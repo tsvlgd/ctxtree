@@ -327,6 +327,8 @@ t "scripts parse" sh -c "bash -n bin/ctxtree && bash -n install.sh && for f in g
 t "every git hook file is executable" sh -c "! find git-hooks -type f ! -perm -u+x | grep -q ."
 t "scripts are checked out with LF endings" sh -c "! grep -l \"\$(printf '\r')\" bin/ctxtree install.sh git-hooks/pre-commit tests/run.sh"
 t ".gitattributes forces LF for scripts" grep -q 'eol=lf' .gitattributes
+t "/memory-init offers shared or private memory" grep -q 'ctxtree init --private' commands/memory-init.md
+t "no instruction tells agents to commit private memory" sh -c "! grep -n -iE 'commit (the )?memory|memory with the work' core/protocol.md commands/*.md skills/memory-tree/SKILL.md templates/AGENTS.md | grep -v -i 'private'"
 t "every command has a description" sh -c "for f in commands/*.md; do sed -n 2p \"\$f\" | grep -q '^description: ' || exit 1; done"
 t "every skill has name and description" sh -c "for f in skills/*/SKILL.md; do grep -q '^name: ' \"\$f\" && grep -q '^description: ' \"\$f\" || exit 1; done"
 t "README and AGENTS.md point agents at INSTALL.md" sh -c "grep -q 'INSTALL.md' README.md && grep -q 'INSTALL.md' AGENTS.md"
