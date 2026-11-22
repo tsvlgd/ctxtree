@@ -1,0 +1,13 @@
+#!/bin/sh
+# _run-local <hook name> [args]: run the repository's own hook of that name.
+# A global core.hooksPath makes git ignore .git/hooks, so every hook name git
+# knows is a small wrapper around this script and the repo's hooks keep running
+# (Gerrit commit-msg, git lfs pre-push and post-checkout, pre-commit framework).
+# Stdin, arguments and the exit status pass through unchanged.
+name="$1"; shift
+here="$(cd "$(dirname "$0")" && pwd -P)"
+dir="$(git rev-parse --git-common-dir 2>/dev/null)" || exit 0
+hook="$dir/hooks/$name"
+[ -f "$hook" ] && [ -x "$hook" ] || exit 0
+[ "$(cd "$dir/hooks" && pwd -P)" = "$here" ] && exit 0   # never call ourselves
+exec "$hook" "$@"

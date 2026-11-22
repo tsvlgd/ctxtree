@@ -1,0 +1,6 @@
+{
+  "name": "ctxtree",
+  "version": "0.1.0",
+  "description": "One shared memory system for coding agents: memory tree, sync hooks, planning with files, /learn, /catchup, /task, /promote, /memory-init, /project-docs.",
+  "license": "MIT"
+}

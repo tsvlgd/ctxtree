@@ -1,0 +1,11 @@
+{
+  "name": "ctxtree",
+  "owner": { "name": "ctxtree maintainers" },
+  "plugins": [
+    {
+      "name": "ctxtree",
+      "source": "./",
+      "description": "Shared memory tree, sync hooks and memory commands for Claude Code."
+    }
+  ]
+}

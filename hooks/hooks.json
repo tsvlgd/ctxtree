@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/ctxtree\" context", "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/ctxtree\" context --stop", "timeout": 10 } ] }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# ctxtree pre-commit guard, installed as a global core.hooksPath.
+# Blocks secrets in memory files; warns on size limits and on memory behind the code.
+# Then runs the repository's own .git/hooks/pre-commit, if any, so local hooks keep working.
+set -u
+here="$(cd "$(dirname "$0")" && pwd -P)"
+out="$("$here/../bin/ctxtree" check --staged 2>&1)"; rc=$?
+printf '%s\n' "$out" | grep -v '^ctxtree check: 0 error(s), 0 warning(s)$' >&2 || true
+if [ "$rc" -ne 0 ]; then
+  echo "ctxtree: commit blocked. Remove the secret value from the memory file and write where it lives instead." >&2
+  exit 1
+fi
+exec "$here/_run-local" pre-commit "$@"

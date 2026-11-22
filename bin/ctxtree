@@ -1,0 +1,458 @@
+#!/usr/bin/env bash
+# ctxtree: one shared memory system for coding agents.
+#
+#   ctxtree context [--profile] [--stop]
+#                               hook entry: print memory for a session start (plus
+#                               PROFILE.md with --profile, for agents that cannot
+#                               import files), or block a stop once while memory
+#                               is behind the code
+#   ctxtree status [dir]       none | fresh | stale <n>
+#   ctxtree where [dir]        print the memory root for dir (empty if none)
+#   ctxtree check [dir]        lint a memory tree (secrets, sizes, broken links)
+#   ctxtree check --staged     same, on staged files (git pre-commit)
+#   ctxtree check --global     lint the global files (rules, profile, registry)
+#   ctxtree init [--name N] [--force] [topic...]
+#                               create memory/ (and AGENTS.md if missing) here
+#   ctxtree doctor             verify the install for every configured agent
+#   ctxtree sync               refresh managed copies of the global rules
+#                               (used where symlinks are unavailable; also runs
+#                               automatically at every session start)
+#   ctxtree version
+#
+# Lookup rule, the same for every agent: the nearest memory/INDEX.md from the
+# working directory up to the git root, or the working directory only when it
+# is not inside a git repo. Nothing else is searched.
+#
+# Runtime needs only bash (3.2 or later) and git. Environment: CTXTREE_HOME (global files, default ~/.config/ctxtree),
+# CTXTREE_TASK_STALE_DAYS (14), CTXTREE_MAX_INDEX_LINES (60, injection cap).
+
+set -u
+
+VERSION="0.1.0"
+CTXTREE_HOME="${CTXTREE_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/ctxtree}"
+INDEX_LIMIT=40
+TOPIC_LIMIT=150
+TASK_LIMIT=120
+PROFILE_LIMIT=80
+MAX_INDEX_LINES="${CTXTREE_MAX_INDEX_LINES:-60}"
+TASK_STALE_DAYS="${CTXTREE_TASK_STALE_DAYS:-14}"
+MAX_LISTED_COMMITS=15
+
+# Secret patterns. Kept specific to avoid flagging prose like "token lives in .env".
+SECRET_RE='AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|(sk|pk|rk)_(live|test)_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(api[_-]?key|secret|passw(or)?d|access[_-]?token|auth[_-]?token|bearer)["'\'']?[[:space:]]*[:=][[:space:]]*["'\'']?[A-Za-z0-9/+_.=-]{20,}'
+
+die() { printf 'ctxtree: %s\n' "$*" >&2; exit 2; }
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
+fmt_date() { date -d "@$1" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r "$1" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$1"; }
+canon() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+lines_of() { wc -l < "$1" 2>/dev/null | tr -d ' '; }
+# resolve <path>: follow symlinks without readlink -f (BSD, busybox, Git Bash).
+resolve() {
+  local p="$1" t n=0
+  while [ -L "$p" ] && [ "$n" -lt 40 ]; do
+    t="$(readlink "$p")"
+    case "$t" in /*|[A-Za-z]:*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac
+    n=$((n + 1))
+  done
+  printf '%s' "$p"
+}
+# json_str <json> <key>: value of a flat string field, unescaped. No jq needed.
+json_str() {
+  printf '%s' "$1" | tr -d '\n\r' | sed -nE 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p' \
+    | sed -e 's/\\"/"/g' -e 's/\\\//\//g' -e 's/\\\\/\\/g'
+}
+# json_bool <json> <key>: true or false.
+json_bool() {
+  printf '%s' "$1" | tr -d '\n\r' | sed -nE 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*(true|false).*/\1/p'
+}
+# json_escape: stdin to a JSON string body.
+json_escape() {
+  sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$(printf '\t')/\\\\t/g" -e "s/$(printf '\r')//g" \
+    | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+}
+# to_unix <path>: Windows style path from a hook (C:\x or C:/x) to the shell's form.
+to_unix() {
+  case "$1" in
+    [A-Za-z]:[\\/]*) if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s' "$1" | tr '\\' '/'; fi ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# find_root <dir>: print the memory root for dir, or nothing.
+find_root() {
+  local cwd top dir
+  cwd="$(canon "$1")"
+  top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$top" ] && top="$(canon "$(to_unix "$top")")"   # git prints C:/x on Windows; pwd prints /c/x
+  dir="$cwd"
+  while [ -n "$dir" ]; do
+    if [ -f "$dir/memory/INDEX.md" ]; then printf '%s' "$dir"; return 0; fi
+    [ -z "$top" ] && return 0
+    [ "$dir" = "$top" ] && return 0
+    [ "$dir" = "/" ] && return 0
+    dir="$(dirname "$dir")"
+  done
+}
+
+# staleness <root>: sets LAST (epoch of last memory update), BEHIND, COMMITS.
+staleness() {
+  local root="$1" t f
+  LAST=0; BEHIND=0; COMMITS=""
+  git -C "$root" rev-parse -q --verify HEAD >/dev/null 2>&1 || return 0
+  LAST="$(git -C "$root" log -1 --format=%ct -- memory 2>/dev/null || true)"
+  LAST="${LAST:-0}"
+  while IFS= read -r f; do
+    t="$(mtime "$f")"
+    [ "$t" -gt "$LAST" ] && LAST="$t"
+  done < <(find "$root/memory" -type f ! -path "$root/memory/archive/*" 2>/dev/null)
+  COMMITS="$(git -C "$root" log HEAD --first-parent --since="@$((LAST + 1))" \
+    --date=short --format='  %cd %h %s' -- . ':(exclude)memory' 2>/dev/null || true)"
+  [ -n "$COMMITS" ] && BEHIND="$(printf '%s\n' "$COMMITS" | wc -l | tr -d ' ')"
+  return 0
+}
+
+# ---------------------------------------------------------------- sync
+# Managed copies exist where symlinks are unavailable (Windows without Developer
+# Mode). Each line of $CTXTREE_HOME/copies is "<source><TAB><copy>". A copy is the
+# source plus one marker line; rewrite any copy that differs. Prints what it fixed.
+sync_copies() {
+  local list="$CTXTREE_HOME/copies" src dst want
+  [ -f "$list" ] || return 0
+  while IFS="$(printf '\t')" read -r src dst; do
+    [ -n "$src" ] && [ -f "$src" ] || continue
+    want="$(printf '<!-- ctxtree:managed copy of %s. Edit that file; this copy is refreshed automatically. -->\n' "$(native_path "$src")"; cat "$src")"
+    if [ ! -f "$dst" ] || [ "$(cat "$dst")" != "$want" ]; then
+      mkdir -p "$(dirname "$dst")" 2>/dev/null && printf '%s\n' "$want" > "$dst" && printf 'synced %s\n' "$dst"
+    fi
+  done < "$list"
+}
+native_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+cmd_sync() { sync_copies; return 0; }
+
+# ---------------------------------------------------------------- context
+cmd_context() {
+  local mode="start" cwd="$PWD" source="manual" stop_active="false" input c s a sid="" root profile=0
+  while [ $# -gt 0 ]; do
+    case "$1" in --stop) mode="stop" ;; --profile) profile=1 ;; esac
+    shift
+  done
+  if [ ! -t 0 ]; then
+    input="$(cat 2>/dev/null || true)"
+    if [ -n "$input" ]; then
+      c="$(json_str "$input" cwd)"
+      s="$(json_str "$input" source)"
+      a="$(json_bool "$input" stop_hook_active)"
+      sid="$(json_str "$input" session_id)"
+      [ -n "$c" ] && cwd="$(to_unix "$c")"
+      [ -n "$s" ] && source="$s"
+      [ "$a" = "true" ] && stop_active="true"
+    fi
+  fi
+  # Keep managed copies of the global rules current (no output into the session).
+  [ "$mode" = "start" ] && sync_copies >/dev/null 2>&1
+  # Never block a stop that this hook already caused.
+  [ "$mode" = "stop" ] && [ "$stop_active" = "true" ] && return 0
+
+  if [ "$mode" = "start" ] && [ "$profile" = 1 ] && [ -f "$CTXTREE_HOME/PROFILE.md" ]; then
+    printf '<user-profile path="%s">\n' "$CTXTREE_HOME/PROFILE.md"
+    cat "$CTXTREE_HOME/PROFILE.md"
+    printf '</user-profile>\n'
+  fi
+  root="$(find_root "$cwd")"
+  [ -z "$root" ] && return 0
+  staleness "$root"
+  local last_date todo listed
+  last_date="$(fmt_date "$LAST")"
+  listed="$(printf '%s\n' "$COMMITS" | head -n "$MAX_LISTED_COMMITS")"
+  todo="Update the memory tree at $root/memory now: the topic file these commits belong to (decisions, state, ids), one dated line in log.md, and INDEX 'Where we are' (date it today) and 'Next'. If none of these commits change the project's status, still refresh the date on INDEX 'Where we are' so this check clears. Commit the memory with the work."
+
+  if [ "$mode" = "stop" ]; then
+    [ "$BEHIND" -eq 0 ] && return 0
+    # Block at most once per session per code state: a stop the agent or user
+    # already declined is not blocked again until new commits arrive.
+    if [ -n "$sid" ]; then
+      local state head mark
+      state="${CTXTREE_STATE_DIR:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/ctxtree-$(id -u)}"
+      head="$(git -C "$root" rev-parse -q HEAD 2>/dev/null || echo none)"
+      mark="$state/$(printf '%s' "$sid" | tr -cd 'A-Za-z0-9_-')"
+      [ -f "$mark" ] && [ "$(cat "$mark")" = "$head" ] && return 0
+      mkdir -p "$state" 2>/dev/null && printf '%s' "$head" > "$mark" 2>/dev/null
+    fi
+    printf '{"decision": "block", "reason": "%s"}\n' "$(printf '%s\n%s\n%s' \
+      "Project memory is behind the code: ${BEHIND} commit(s) since memory was last updated (${last_date})." \
+      "$listed" "$todo" | json_escape)"
+    return 0
+  fi
+
+  local task="$root/memory/active-task.md" n age
+  printf '<project-memory root="%s" trigger="%s">\n' "$root" "$source"
+  printf 'Loaded automatically from the memory tree. INDEX.md is already read; do not read it again. '
+  if [ -f "$task" ]; then
+    printf 'active-task.md is the task in progress: resume from its next step and keep it updated as phases finish.\n'
+  else
+    printf 'No task is in progress.\n'
+  fi
+  if [ "$BEHIND" -gt 0 ]; then
+    printf '<memory-stale>\nMemory was last updated %s, but %s commit(s) changed the code since:\n%s\nDo not trust INDEX "Where we are" for anything after %s; check the commits above. %s Do this before or alongside the user'"'"'s task.\n</memory-stale>\n' \
+      "$last_date" "$BEHIND" "$listed" "$last_date" "$todo"
+  fi
+  if [ -f "$task" ]; then
+    age=$(( ( $(date +%s) - $(mtime "$task") ) / 86400 ))
+    if [ "$age" -ge "$TASK_STALE_DAYS" ]; then
+      printf '<task-stale>active-task.md has not changed in %s days. Ask the user whether the task is still live; if not, move its lasting facts to topic files and delete it.</task-stale>\n' "$age"
+    fi
+  fi
+  emit() {
+    n="$(lines_of "$1")"
+    printf '<file path="%s">\n' "$1"
+    head -n "$2" "$1"
+    [ "${n:-0}" -gt "$2" ] && printf '\n[truncated at %s of %s lines; read the file for the rest]\n' "$2" "$n"
+    printf '</file>\n'
+  }
+  emit "$root/memory/INDEX.md" "$MAX_INDEX_LINES"
+  [ -f "$task" ] && emit "$task" "$TASK_LIMIT"
+  printf '</project-memory>\n'
+  return 0
+}
+
+# ---------------------------------------------------------------- status / where
+cmd_status() {
+  local root; root="$(find_root "${1:-$PWD}")"
+  [ -z "$root" ] && { echo "none"; return 0; }
+  staleness "$root"
+  if [ "$BEHIND" -gt 0 ]; then echo "stale $BEHIND"; else echo "fresh"; fi
+}
+cmd_where() { find_root "${1:-$PWD}"; echo; }
+
+# ---------------------------------------------------------------- check
+ERRORS=0; WARNINGS=0
+err()  { printf 'ERROR %s\n' "$*"; ERRORS=$((ERRORS + 1)); }
+warn() { printf 'WARN  %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
+
+# check_content <label> <kind> < content
+#   kind: index | task | topic | log | profile | global | other
+check_content() {
+  local label="$1" kind="$2" body n limit=""
+  body="$(cat)"
+  if printf '%s\n' "$body" | grep -Eiq -e "$SECRET_RE"; then
+    err "$label: looks like a secret value. Store where the secret lives, never the value."
+  fi
+  n="$(printf '%s\n' "$body" | wc -l | tr -d ' ')"
+  case "$kind" in
+    index) limit="$INDEX_LIMIT" ;;
+    task) limit="$TASK_LIMIT" ;;
+    topic) limit="$TOPIC_LIMIT" ;;
+    profile) limit="$PROFILE_LIMIT" ;;
+  esac
+  if [ -n "$limit" ] && [ "$n" -gt "$limit" ]; then
+    warn "$label: $n lines, limit $limit. Move detail into a topic file or archive/."
+  fi
+}
+
+kind_of() {
+  case "$1" in
+    */archive/*) echo archive ;;
+    */INDEX.md|INDEX.md) echo index ;;
+    */active-task.md|active-task.md) echo task ;;
+    */log.md|log.md) echo log ;;
+    *.md) echo topic ;;
+    *) echo other ;;
+  esac
+}
+
+check_tree() {
+  local root="$1" f rel kind ref
+  [ -f "$root/memory/INDEX.md" ] || { err "$root: no memory/INDEX.md"; return; }
+  while IFS= read -r f; do
+    rel="${f#"$root"/}"
+    kind="$(kind_of "$rel")"
+    [ "$kind" = "archive" ] && { check_content "$rel" other < "$f"; continue; }
+    check_content "$rel" "$kind" < "$f"
+  done < <(find "$root/memory" -type f -name '*.md' | sort)
+  # Every file the INDEX map names must exist.
+  while IFS= read -r ref; do
+    case "$ref" in http*|*' '*|/*|'~'*) continue ;; esac
+    [ -e "$root/memory/$ref" ] || [ -e "$root/$ref" ] || warn "memory/INDEX.md names \`$ref\` but it does not exist"
+  done < <(grep -oE '`[^`]+\.md`|`[^`]+/`' "$root/memory/INDEX.md" | tr -d '`' | sort -u)
+  # Log entries should be dated and newest first.
+  if [ -f "$root/memory/log.md" ]; then
+    local dates
+    dates="$(grep -oE '^- [0-9]{4}-[0-9]{2}-[0-9]{2}' "$root/memory/log.md" | cut -c3-)"
+    if [ -n "$dates" ] && [ "$dates" != "$(printf '%s\n' "$dates" | sort -r)" ]; then
+      warn "memory/log.md: entries are not newest first"
+    fi
+  fi
+}
+
+check_global() {
+  local f
+  [ -d "$CTXTREE_HOME" ] || { err "$CTXTREE_HOME does not exist"; return; }
+  for f in "$CTXTREE_HOME/GLOBAL.md" "$CTXTREE_HOME/PROFILE.md" "$CTXTREE_HOME/registry.md"; do
+    [ -f "$f" ] || { warn "missing $f"; continue; }
+    case "$f" in */PROFILE.md) check_content "PROFILE.md" profile < "$f" ;; *) check_content "${f##*/}" global < "$f" ;; esac
+  done
+  if [ -d "$CTXTREE_HOME/notes" ]; then
+    while IFS= read -r f; do check_content "notes/${f##*/}" other < "$f"; done < <(find "$CTXTREE_HOME/notes" -type f -name '*.md')
+  fi
+  if [ -f "$CTXTREE_HOME/GLOBAL.md" ] && ! grep -q 'ctxtree:begin' "$CTXTREE_HOME/GLOBAL.md"; then
+    warn "GLOBAL.md has no ctxtree managed block; rerun the installer"
+  fi
+}
+
+check_staged() {
+  local top f kind code=0 mem=0 st
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not in a git repo"
+  while IFS= read -r f; do
+    case "$f" in
+      memory/*|*/memory/*)
+        mem=1
+        kind="$(kind_of "$f")"
+        [ "$kind" = "archive" ] && kind=other
+        check_content "$f" "$kind" < <(git show ":$f" 2>/dev/null)
+        ;;
+      *) code=1 ;;
+    esac
+  done < <(git diff --cached --name-only --diff-filter=ACM)
+  if [ "$code" = 1 ] && [ "$mem" = 0 ] && [ -f "$top/memory/INDEX.md" ]; then
+    st="$(cmd_status "$top")"
+    case "$st" in
+      stale*) warn "project memory is ${st#stale } commit(s) behind the code and this commit adds more. Update memory/ (topic file, log.md, INDEX) in this or the next commit." ;;
+    esac
+  fi
+}
+
+cmd_check() {
+  local root
+  case "${1:-}" in
+    --staged) check_staged ;;
+    --global) check_global ;;
+    *)
+      root="$(find_root "${1:-$PWD}")"
+      [ -z "$root" ] && { echo "no memory tree found from ${1:-$PWD}"; return 1; }
+      check_tree "$root"
+      ;;
+  esac
+  printf 'ctxtree check: %s error(s), %s warning(s)\n' "$ERRORS" "$WARNINGS"
+  [ "$ERRORS" -eq 0 ]
+}
+
+# ---------------------------------------------------------------- init
+pack_dir() { cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")/.." && pwd; }
+
+cmd_init() {
+  local name="" force=0 topics=() here top tpl today slug reg t
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name) name="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      -*) die "unknown option $1" ;;
+      *) topics+=("$1"); shift ;;
+    esac
+  done
+  here="$(canon "$PWD")"
+  # Guardrail: never create project memory or AGENTS.md above a project root.
+  case "$here" in "/"|"$(canon "$HOME")") die "refusing to create project memory in $here (above any project root)" ;; esac
+  top="$(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ "$force" = 0 ]; then
+    [ -z "$top" ] && die "$here is not a git repo; run git init first or pass --force"
+    [ "$top" != "$here" ] && die "run init at the git root ($top), or pass --force"
+  fi
+  [ -f "$here/memory/INDEX.md" ] && die "memory/INDEX.md already exists; not overwriting"
+  [ -z "$name" ] && name="$(basename "$here")"
+  tpl="$(pack_dir)/templates"
+  [ -d "$tpl/memory" ] || die "templates not found at $tpl"
+  today="$(date +%F)"
+  mkdir -p "$here/memory/archive"
+  : > "$here/memory/archive/.keep"
+  render() { sed -e "s|{{PROJECT}}|$name|g" -e "s|{{DATE}}|$today|g" -e "s|{{TOPIC}}|${2:-}|g" "$1"; }
+  render "$tpl/memory/INDEX.md" > "$here/memory/INDEX.md"
+  render "$tpl/memory/log.md" > "$here/memory/log.md"
+  for t in "${topics[@]+"${topics[@]}"}"; do
+    slug="$(printf '%s' "$t" | tr 'A-Z ' 'a-z-' | tr -cd 'a-z0-9-')"
+    [ -n "$slug" ] || continue
+    render "$tpl/memory/topic.md" "$t" > "$here/memory/$slug.md"
+    printf -- '- `%s.md`: %s.\n' "$slug" "$t" >> "$here/memory/INDEX.md"
+  done
+  if [ ! -f "$here/AGENTS.md" ]; then
+    render "$tpl/AGENTS.md" > "$here/AGENTS.md"
+    echo "created AGENTS.md"
+  fi
+  reg="$CTXTREE_HOME/registry.md"
+  if [ -f "$reg" ] && ! grep -qF "| $here/memory/INDEX.md |" "$reg"; then
+    local row
+    row="$(printf '| %s | %s | %s/memory/INDEX.md |' "$name" "$(printf '%s' "$name" | tr 'A-Z' 'a-z')" "$here")"
+    awk -v row="$row" 'done==0 && /^\|/ {intable=1} done==0 && intable && !/^\|/ {print row; done=1} {print} END {if (!done) print row}' \
+      "$reg" > "$reg.tmp" && mv "$reg.tmp" "$reg"
+    echo "registry row added in $reg"
+  fi
+  echo "created memory/ for $name: INDEX.md, log.md, archive/${topics[*]+ and ${topics[*]}}"
+}
+
+# ---------------------------------------------------------------- doctor
+cmd_doctor() {
+  local ok=0 bad=0 f
+  pass() { printf 'OK    %s\n' "$*"; ok=$((ok + 1)); }
+  fail() { printf 'FAIL  %s\n' "$*"; bad=$((bad + 1)); }
+  # A link, or (where links are unavailable) a file the installer manages that points at the target.
+  linked() { { [ -L "$1" ] && [ "$(canon "$(dirname "$(resolve "$1")")")/$(basename "$(resolve "$1")")" = "$(canon "$(dirname "$2")")/$(basename "$2")" ]; } || grep -qF "ctxtree:managed" "$1" 2>/dev/null; }
+  has() { [ -f "$1" ] && grep -Eq "$2" "$1"; }
+  [ -f "$CTXTREE_HOME/GLOBAL.md" ] && pass "GLOBAL.md" || fail "missing $CTXTREE_HOME/GLOBAL.md"
+  [ -f "$CTXTREE_HOME/PROFILE.md" ] && pass "PROFILE.md" || fail "missing $CTXTREE_HOME/PROFILE.md"
+  [ -f "$CTXTREE_HOME/agents" ] || { fail "no $CTXTREE_HOME/agents (installer state)"; }
+  local agents; agents="$(cat "$CTXTREE_HOME/agents" 2>/dev/null)"
+  for a in $agents; do
+    case "$a" in
+      claude)
+        linked "$HOME/.claude/CLAUDE.md" "$CTXTREE_HOME/GLOBAL.md" && pass "claude: CLAUDE.md links GLOBAL.md" || fail "claude: CLAUDE.md is not a link to GLOBAL.md"
+        has "$HOME/.claude/settings.json" 'ctxtree(\.cmd)?\\?" context"' && pass "claude: SessionStart hook" || fail "claude: SessionStart hook missing"
+        has "$HOME/.claude/settings.json" 'ctxtree(\.cmd)?\\?" context --stop"' && pass "claude: Stop hook" || fail "claude: Stop hook missing"
+        [ -e "$HOME/.claude/commands/learn.md" ] && pass "claude: commands" || fail "claude: commands missing"
+        [ -e "$HOME/.claude/skills/memory-tree/SKILL.md" ] && pass "claude: skills" || fail "claude: skills missing"
+        ;;
+      opencode)
+        linked "$HOME/.config/opencode/AGENTS.md" "$CTXTREE_HOME/GLOBAL.md" && pass "opencode: AGENTS.md links GLOBAL.md" || fail "opencode: AGENTS.md is not a link to GLOBAL.md"
+        if has "$HOME/.config/opencode/opencode.json" '"memory/INDEX.md"'; then
+          pass "opencode: instructions load memory/INDEX.md and PROFILE.md"
+        else fail "opencode: instructions missing memory/INDEX.md"; fi
+        [ -e "$HOME/.config/opencode/commands/learn.md" ] && pass "opencode: commands" || fail "opencode: commands missing"
+        [ -e "$HOME/.agents/skills/memory-tree/SKILL.md" ] && pass "opencode: skills (~/.agents/skills)" || fail "opencode: skills missing"
+        ;;
+      codex)
+        linked "$HOME/.codex/AGENTS.md" "$CTXTREE_HOME/GLOBAL.md" && pass "codex: AGENTS.md links GLOBAL.md" || fail "codex: AGENTS.md is not a link to GLOBAL.md"
+        [ -e "$HOME/.codex/prompts/learn.md" ] && pass "codex: prompts" || fail "codex: prompts missing"
+        [ -e "$HOME/.agents/skills/memory-tree/SKILL.md" ] && pass "codex: skills (~/.agents/skills)" || fail "codex: skills missing"
+        if has "${CODEX_HOME:-$HOME/.codex}/hooks.json" 'ctxtree(\.cmd)?\\?" context --profile'; then
+          pass "codex: hooks.json (approve once in /hooks)"
+        else fail "codex: hooks.json missing ctxtree hooks"; fi
+        ;;
+      antigravity)
+        linked "$HOME/.gemini/GEMINI.md" "$CTXTREE_HOME/GLOBAL.md" && pass "antigravity: GEMINI.md links GLOBAL.md" || fail "antigravity: GEMINI.md is not a link to GLOBAL.md"
+        [ -e "$HOME/.gemini/config/global_workflows/learn.md" ] && pass "antigravity: workflows" || fail "antigravity: workflows missing"
+        [ -e "$HOME/.gemini/config/skills/memory-tree/SKILL.md" ] && pass "antigravity: skills" || fail "antigravity: skills missing"
+        ;;
+    esac
+  done
+  if [ -f "$CTXTREE_HOME/copies" ]; then
+    local drift; drift="$(CTXTREE_HOME="$CTXTREE_HOME" sync_copies)"
+    [ -z "$drift" ] && pass "managed copies match their source" || pass "managed copies refreshed: $(printf '%s' "$drift" | wc -l | tr -d ' ')"
+  fi
+  ERRORS=0; WARNINGS=0
+  check_global >/dev/null
+  [ "$ERRORS" -eq 0 ] && pass "global files pass ctxtree check --global" || fail "global files fail ctxtree check --global"
+  printf 'ctxtree doctor: %s ok, %s failed\n' "$ok" "$bad"
+  [ "$bad" -eq 0 ]
+}
+
+# ---------------------------------------------------------------- main
+case "${1:-}" in
+  context) shift; cmd_context "$@"; exit 0 ;;
+  status) shift; cmd_status "$@" ;;
+  where) shift; cmd_where "$@" ;;
+  check) shift; cmd_check "$@" ;;
+  init) shift; cmd_init "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  sync) shift; cmd_sync "$@" ;;
+  version|--version) echo "ctxtree $VERSION" ;;
+  ""|-h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command $1 (try ctxtree help)" ;;
+esac

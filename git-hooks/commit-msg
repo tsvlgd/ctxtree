@@ -1,0 +1,3 @@
+#!/bin/sh
+# ctxtree: runs this repository's own commit-msg hook; see _run-local.
+exec "$(dirname "$0")/_run-local" "$(basename "$0")" "$@"
