@@ -65,6 +65,7 @@ The installer needs bash, git and jq. At runtime ctxtree needs only bash (3.2 or
 | --- | --- |
 | `--agents claude,opencode,codex,antigravity` | wire only these (default: every agent whose config folder exists) |
 | `--dry-run` | print every action, change nothing |
+| `--verbose` | print every action while installing (default: a short summary, full list in `~/.config/ctxtree/install.log`) |
 | `--link` | link the pack to this checkout (for hacking on ctxtree) |
 | `--claude-plugin` | let the Claude Code plugin provide commands, skills and hooks |
 | `--keep-auto-memory` | leave Claude Code auto memory on |
