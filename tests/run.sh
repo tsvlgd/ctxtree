@@ -158,7 +158,7 @@ P="$(cd "$SANDBOX/w/pretty" && CTXTREE_PRETTY=1 NO_COLOR=1 "$AM" status)"
 t "status at a terminal keeps the machine word first" sh -c "printf '%s\n' \"\$1\" | head -n 1 | grep -Eqx 'fresh|stale [0-9]+'" _ "$P"
 t "status at a terminal shows project, memory and next step" sh -c "printf '%s\n' \"\$1\" | grep -q '^project  pretty' && printf '%s\n' \"\$1\" | grep -q '^memory   updated' && printf '%s\n' \"\$1\" | grep -qx 'next     run the tests'" _ "$P"
 t "NO_COLOR turns colour off" sh -c "! printf '%s' \"\$1\" | grep -q \"\$(printf '\\033')\"" _ "$P"
-t "colour only for a person at a terminal" sh -c "cd '$SANDBOX/w/pretty' && CTXTREE_PRETTY=1 '$AM' status | grep -q \"\$(printf '\\033')\" && ! '$AM' status | grep -q \"\$(printf '\\033')\""
+t "colour only for a person at a terminal" sh -c "cd '$SANDBOX/w/pretty' && NO_COLOR= TERM=xterm CTXTREE_PRETTY=1 '$AM' status | grep -q \"\$(printf '\\033')\" && ! '$AM' status | grep -q \"\$(printf '\\033')\""
 t "piped doctor output stays plain" sh -c "! '$AM' doctor | grep -q \"\$(printf '\\033')\" && '$AM' doctor | grep -q '^OK    '"
 
 group "sync: staleness, session start, stop hook"
