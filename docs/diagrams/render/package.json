@@ -1,0 +1,16 @@
+{
+  "name": "ctxtree-diagrams-render",
+  "private": true,
+  "description": "Renders docs/diagrams/*.excalidraw to SVG and PNG with the official Excalidraw exporter in headless Chrome",
+  "type": "module",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "devDependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "esbuild": "0.25.10",
+    "puppeteer-core": "24.22.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  }
+}

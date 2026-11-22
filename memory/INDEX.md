@@ -7,7 +7,7 @@ A reproducible pack that gives Claude Code, OpenCode, Codex and Antigravity one 
 - Cross platform work in flight; see `active-task.md`.
 - v0.1 built: CLI, installer (4 agents), commands, skills, git guard, Claude plugin, docs. `tests/run.sh` 135 passed; `tests/live-smoke.sh` 8 passed on real Claude Code and OpenCode.
 - Agent install: user says "Install ctxtree by following INSTALL.md in <repo>"; the agent runs a dry run, asks once, installs, carries over old rules, runs doctor.
-- Nothing committed yet by request. Private repo, no remote. Not installed on the owner's machine.
+- Public on GitHub (tsvlgd/ctxtree), first commit pushed. npm name ctxtree still free (checked 2026-11-22). Not installed on the owner's machine.
 
 ## Next
 

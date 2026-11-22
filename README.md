@@ -1,121 +1,207 @@
-# ctxtree
+<p align="center">
+  <img src="docs/assets/hero.gif" alt="Four coding agents, each with scattered notes, connect to one shared ctxtree memory and stay in sync" width="800">
+</p>
 
-One shared memory system for coding agents. Claude Code, OpenCode, Codex and Antigravity read the same rules, the same user profile and the same per project memory, keep that memory in sync with the code, and share the same slash commands.
+<h1 align="center">ctxtree</h1>
 
-A model forgets everything between sessions. Memory is only the files that get put back into its context. This pack gives every kind of fact exactly one home and gives every home something that loads it.
+<p align="center"><b>One memory for every coding agent.</b></p>
 
-```mermaid
-flowchart LR
-  subgraph global["~/.config/ctxtree (yours, in git)"]
-    G["GLOBAL.md<br/>your rules + managed protocol"]
-    P["PROFILE.md<br/>who you are"]
-    R["registry.md<br/>which project lives where"]
-  end
-  subgraph project["each repo"]
-    M["memory/<br/>INDEX, topics, log, active-task"]
-    D["docs/<br/>architecture, decisions, flows, operations"]
-  end
-  G --> CC[Claude Code] & OC[OpenCode] & CX[Codex] & AG[Antigravity]
-  P --> CC & OC & CX
-  M -->|hooks / instructions| CC & OC & CX
-  M -.->|/catchup| AG
-```
+<p align="center">
+  <a href="https://github.com/tsvlgd/ctxtree/actions/workflows/test.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/tsvlgd/ctxtree/test.yml?branch=main&style=flat-square&label=tests"></a>
+  <img alt="platforms" src="https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-informational?style=flat-square">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/tsvlgd/ctxtree?style=flat-square"></a>
+</p>
 
-## What you get
+<p align="center">
+  <a href="#install">Install</a> &middot;
+  <a href="#quick-start">Quick start</a> &middot;
+  <a href="#supported-agents">Agents</a> &middot;
+  <a href="#how-it-works">How it works</a> &middot;
+  <a href="#commands">Commands</a> &middot;
+  <a href="docs/">Docs</a>
+</p>
 
-| Piece | What it does |
-| --- | --- |
-| `GLOBAL.md` | Your rules, symlinked into every agent. A managed block holds the memory protocol; upgrades replace only that block. |
-| `PROFILE.md` | Your preferences, loaded in every session (import, instructions or hook, depending on the agent). |
-| `memory/` tree | Per project facts, decisions and state: `INDEX.md` (always loaded, under 40 lines), topic files (on demand), `log.md`, `active-task.md` (planning with files), `archive/`. |
-| Sync | Memory is "behind" when the repo has code commits newer than the last memory update. Session start shows a warning, the Stop hook asks once per session for an update, the git guard warns at commit. |
-| Guardrails | Secrets in memory or global files block the commit; size limits, broken INDEX links and unordered logs warn; no memory or AGENTS.md above a project root; global files change only on request or confirmation. |
-| Commands | `/catchup`, `/task`, `/learn`, `/promote`, `/memory-init`, `/project-docs` |
-| Skills | `memory-tree` (the standard), `project-docs` (four docs with Mermaid, verified against code) |
-| CLI | `ctxtree context, status, where, check, init, doctor` |
+Coding agents forget everything between sessions, and each one keeps its own private, duplicated notes. **ctxtree** gives Claude Code, OpenCode, Codex and Antigravity the same memory: plain Markdown in your repo, loaded automatically, kept in sync with the code.
+
+- **Shared:** one `memory/` tree per repo and one set of global rules and profile, read by every agent. No database, no memory server.
+- **Automatic:** hooks and instruction lists put the right files in context at session start, after `/clear` and after compaction.
+- **In sync:** when code moves ahead of memory, agents are told at session start, asked once before stopping, and warned at commit.
+- **Guarded:** secrets in memory block the commit, size limits keep context lean, and global files change only when you say so.
 
 ## Install
 
-Open Claude Code, OpenCode or Codex and say:
+Point your agent at the repo and let it do the work. It runs a dry run, explains every change, and asks you once:
 
-> Install ctxtree on this machine by following INSTALL.md in <this repo>
+```text
+Install ctxtree on this machine by following INSTALL.md in https://github.com/tsvlgd/ctxtree
+```
 
-The agent runs the steps in [INSTALL.md](INSTALL.md) and asks you once before changing anything.
+Or by hand, on Linux, macOS or Windows (Git Bash):
 
-### By hand
+```bash
+git clone https://github.com/tsvlgd/ctxtree && cd ctxtree
+./install.sh --dry-run    # see every change first
+./install.sh              # wires every agent it finds
+ctxtree doctor            # verify
+```
 
-Requirements: bash, git and jq for the installer; only bash and git at runtime.
+<details>
+<summary><b>Requirements and platform notes</b></summary>
+
+The installer needs bash, git and jq. At runtime ctxtree needs only bash (3.2 or later) and git.
 
 | Platform | Notes |
 | --- | --- |
 | Linux | any bash, GNU or busybox tools |
 | macOS | the built in bash 3.2 works; jq ships with macOS 15 and later (`brew install jq` before that) |
-| Windows | run from Git Bash (Git for Windows). Install jq: `winget install jqlang.jq`. Turn on Developer Mode for real symlinks; without it the installer writes managed copies that `ctxtree` refreshes at every session start. Codex hooks use the `ctxtree.cmd` shim so they run through Git Bash, never WSL |
+| Windows | run from Git Bash. Install jq with `winget install jqlang.jq`. With Developer Mode on you get real symlinks; without it the installer writes managed copies that ctxtree refreshes at every session start. Codex hooks go through a `ctxtree.cmd` shim so they run in Git Bash, never WSL |
+
+</details>
+
+<details>
+<summary><b>Installer options</b></summary>
+
+| Option | Effect |
+| --- | --- |
+| `--agents claude,opencode,codex,antigravity` | wire only these (default: every agent whose config folder exists) |
+| `--dry-run` | print every action, change nothing |
+| `--link` | link the pack to this checkout (for hacking on ctxtree) |
+| `--claude-plugin` | let the Claude Code plugin provide commands, skills and hooks |
+| `--keep-auto-memory` | leave Claude Code auto memory on |
+| `--no-git-hook`, `--no-git` | skip the global pre-commit guard, or git for the global folder |
+| `--uninstall [--purge]` | undo everything from the manifest and restore backups |
+
+Every file the installer replaces is backed up under `~/.config/ctxtree/backups/`, and running it again changes nothing.
+
+</details>
+
+<details>
+<summary><b>Claude Code plugin</b></summary>
 
 ```bash
-git clone <this repo> ctxtree && cd ctxtree
-./install.sh --dry-run          # see every action first
-./install.sh                    # wires every agent whose config folder exists
-ctxtree doctor                 # verify
+./install.sh --claude-plugin
 ```
 
-Options (all platforms): `--agents claude,opencode,codex,antigravity`, `--link` (develop the pack in place), `--keep-auto-memory`, `--claude-plugin`, `--no-git-hook`, `--no-git`, `--uninstall [--purge]`. The installer backs up every file it replaces, records every change in a manifest, and reruns safely.
+Then in Claude Code: `/plugin marketplace add tsvlgd/ctxtree` and `/plugin install ctxtree@ctxtree`.
 
-Your existing setup keeps working. Rules you already had in `CLAUDE.md`, `AGENTS.md` or `GEMINI.md` are copied into `GLOBAL.md`, so they still load. Your own commands, skills or prompts with the same name as ours stay in place. Your repositories' own git hooks (commit-msg, pre-push and the rest) still run after the ctxtree guard. Project `memory/` folders and Claude auto memory files are never touched. `--uninstall` puts every file back exactly as it was.
+</details>
 
-Then:
+## Quick start
 
-1. Fill in `~/.config/ctxtree/PROFILE.md` and the top of `GLOBAL.md`.
-2. In a project, at its git root: `/memory-init` (or `ctxtree init <topic> ...`).
-3. Work. Run `/learn` at milestones. Use `/task <goal>` for anything with more than three steps.
+In a project, at its git root, ask your agent to `/memory-init`, or do it yourself:
 
-### Claude Code as a plugin
-
-Instead of the installer wiring Claude's commands, skills and hooks:
-
-```bash
-./install.sh --claude-plugin     # still links CLAUDE.md and the profile
+```console
+$ ctxtree init api web
+created AGENTS.md
+registry row added in ~/.config/ctxtree/registry.md
+created memory/ for myapp: INDEX.md, log.md, archive/ and api web
 ```
 
-then in Claude Code: `/plugin marketplace add /path/to/ctxtree` and `/plugin install ctxtree@ctxtree`.
+Work as usual. When the code moves on and memory does not, every session knows:
 
-## How each agent is wired
+```console
+$ ctxtree status
+stale 1
+$ ctxtree context   # what the SessionStart hook injects
+<project-memory root="~/code/myapp" trigger="startup">
+<memory-stale>
+Memory was last updated 2026-11-22 19:23, but 1 commit(s) changed the code since:
+  2026-11-22 d821940 feat: add checkout
+...
+```
+
+Run `/learn` at milestones, `/task <goal>` for anything with more than three steps, and `/catchup` when you come back.
+
+## Supported agents
 
 | | Claude Code | OpenCode | Codex | Antigravity |
 | --- | --- | --- | --- | --- |
-| Rules | `~/.claude/CLAUDE.md` link | `~/.config/opencode/AGENTS.md` link | `~/.codex/AGENTS.md` link | `~/.gemini/GEMINI.md` link (also Gemini CLI) |
-| Profile | `@` import in the managed block | `instructions` entry | SessionStart hook (`--profile`) | read at session start (rule) |
-| Project memory | SessionStart hook | `instructions`: `memory/INDEX.md`, `memory/active-task.md` | SessionStart hook | `/catchup` |
-| Sync check | SessionStart + Stop hooks, git guard | git guard, `/catchup` | SessionStart + Stop hooks, git guard | git guard, `/catchup` |
-| Commands | `~/.claude/commands` | `~/.config/opencode/commands` | `~/.codex/prompts` (`/prompts:learn`) | `~/.gemini/config/global_workflows` |
-| Skills | `~/.claude/skills` | `~/.agents/skills` | `~/.agents/skills` | `~/.gemini/config/skills` |
+| Global rules | `CLAUDE.md` link | `AGENTS.md` link | `AGENTS.md` link | `GEMINI.md` link |
+| Your profile | import | instructions | hook | read at start |
+| Project memory | SessionStart hook | instructions | SessionStart hook | `/catchup` |
+| Stays in sync | start + Stop hooks, git | git, `/catchup` | start + Stop hooks, git | git, `/catchup` |
+| Commands | `/learn` | `/learn` | `/prompts:learn` | `/learn` workflow |
 
-Codex asks you to approve new hooks once in `/hooks`. Antigravity hooks are not wired because their format is not documented yet. Claude Code auto memory is turned off because the tree replaces it (`--keep-auto-memory` to keep it).
+> [!NOTE]
+> Codex asks you to approve new hooks once in `/hooks`. Antigravity hooks are not wired yet because their format is not documented. `~/.gemini/GEMINI.md` is also read by Gemini CLI.
 
-## Where facts go
+## How it works
 
-| Fact | Home | Who writes it |
+<p align="center">
+  <img src="docs/diagrams/architecture.png" alt="ctxtree architecture: global files and the project memory tree, and how each agent loads them" width="800">
+</p>
+<p align="center"><i>One home per kind of fact, and one loader per home.</i></p>
+
+| Fact | Home | Loaded |
 | --- | --- | --- |
-| How agents behave | `GLOBAL.md` (above the managed block) | you, or an agent after `/promote` and your yes |
-| Your preferences | `PROFILE.md` | same |
-| Project decisions, state, ids | `memory/<topic>.md` | agents, the moment it becomes true |
-| The task in flight | `memory/active-task.md` | agents, after every phase |
-| What happened when | `memory/log.md` | agents, one line per session |
-| Stable explanation for humans | `docs/*.md` | `/project-docs` |
-| Which project lives where | `registry.md` | `ctxtree init` |
+| How agents behave | `~/.config/ctxtree/GLOBAL.md` | every session, every agent |
+| Who you are | `~/.config/ctxtree/PROFILE.md` | every session |
+| Project decisions, state, ids | `memory/<topic>.md` | when the task needs it |
+| Where the project stands | `memory/INDEX.md` (under 40 lines) | every session |
+| The task in flight | `memory/active-task.md` | every session while it exists |
+| What happened when | `memory/log.md` | on history questions |
+| The explanation for humans | `docs/` | on demand |
 
-## Tests
+Memory is found by one rule for every agent: the nearest `memory/INDEX.md` from the working directory up to the git root. Everything is a file you can read, diff and commit.
+
+<p align="center">
+  <img src="docs/diagrams/session-lifecycle.png" alt="Session lifecycle: start, work, stop hook, learn, commit guard" width="800">
+</p>
+<p align="center"><i>A session: memory comes in at the start, facts go back as they happen, and the hooks catch what was missed.</i></p>
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `/catchup` | where the project stands, the task in flight, and whether memory is behind |
+| `/task <goal>` | plan in files: goal, phases, findings and failed attempts in `active-task.md` |
+| `/learn` | write the session into memory: topic files, log, INDEX, then `ctxtree check` |
+| `/promote <fact>` | propose moving a preference or lesson into your global files, after a yes |
+| `/memory-init` | create the memory tree (and AGENTS.md) from what the repo already has |
+| `/project-docs` | write `docs/ARCHITECTURE`, `DECISIONS`, `FLOWS` and `OPERATIONS` with Mermaid, verified against the code |
+
+The `ctxtree` CLI does the mechanical parts: `context` (hook output), `status`, `where`, `check`, `init`, `sync`, `doctor`.
+
+## Guardrails
+
+- A secret value in a memory or global file blocks the commit. Write where the secret lives instead.
+- INDEX stays under 40 lines and topic files under 150; `ctxtree check` warns past that.
+- No memory tree or AGENTS.md above a project root.
+- Global files change only when you say "always" or "from now on", or after you confirm a `/promote`.
+- The Stop hook blocks at most once per session for the same code, and never loops.
+
+<p align="center">
+  <img src="docs/diagrams/install.png" alt="What install.sh does, and how --uninstall reverses it" width="800">
+</p>
+<p align="center"><i>The installer backs up what it replaces and records every change, so <code>--uninstall</code> puts everything back.</i></p>
+
+## FAQ
+
+#### Why not a memory MCP server or a vector database?
+Those load only when the model decides to call them, and you cannot review what they store. Files in the repo load every time, show up in `git diff`, and work with any agent that can read a file.
+
+#### Does it replace CLAUDE.md and AGENTS.md?
+Your global rules live in one `GLOBAL.md` that every agent reads. Project AGENTS.md files keep working; ctxtree only adds the memory tree next to them.
+
+#### What does it send anywhere?
+Nothing. It is bash and git on your machine.
+
+#### How do I remove it?
+`./install.sh --uninstall` restores every file it replaced. Add `--purge` to delete `~/.config/ctxtree` too.
+
+## Development
 
 ```bash
-bash tests/run.sh          # 116 checks in a throwaway HOME; never touches yours
+bash tests/run.sh          # the full suite in a throwaway HOME; never touches yours
 bash tests/live-smoke.sh   # optional: real Claude Code and OpenCode, a few model calls
 ```
 
-CI (`.github/workflows/test.yml`) runs the suite on ubuntu, macos and windows runners and under bash 3.2 with busybox tools.
+CI runs the suite on Linux, macOS and Windows, and under bash 3.2 with busybox tools. Design notes: [Architecture](docs/ARCHITECTURE.md), [Decisions](docs/DECISIONS.md), [Flows](docs/FLOWS.md), [Operations](docs/OPERATIONS.md).
 
-## Docs
+## Acknowledgements
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Decisions](docs/DECISIONS.md)
-- [Flows](docs/FLOWS.md)
-- [Operations](docs/OPERATIONS.md)
+Planning in files is inspired by [planning-with-files](https://github.com/othmanadi/planning-with-files). Diagrams are drawn in the style of [Excalidraw](https://excalidraw.com).
+
+## License
+
+[MIT](LICENSE)
