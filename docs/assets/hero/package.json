@@ -1,0 +1,8 @@
+{
+  "name": "ctxtree-hero",
+  "private": true,
+  "description": "Renders docs/assets/hero.gif from scene.html with headless Chrome",
+  "dependencies": {
+    "puppeteer-core": "24.22.0"
+  }
+}

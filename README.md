@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/hero.gif" alt="Four coding agents, each with scattered notes, connect to one shared ctxtree memory and stay in sync" width="800">
+  <img src="docs/assets/hero.gif" alt="Claude Code, OpenCode, Codex and Antigravity each keep their own notes, which contradict each other and vanish; ctxtree gives them one memory tree in the repo that every agent reads and that stays in sync with the code" width="100%">
 </p>
 
 <h1 align="center">ctxtree</h1>
@@ -205,3 +205,5 @@ Planning in files is inspired by [planning-with-files](https://github.com/othman
 ## License
 
 [MIT](LICENSE)
+
+ctxtree is an independent open source project, not affiliated with or endorsed by Anthropic, OpenCode, OpenAI or Google. Their marks appear only to identify the tools ctxtree works with; sources in [docs/assets/hero/logos/SOURCES.md](docs/assets/hero/logos/SOURCES.md).
