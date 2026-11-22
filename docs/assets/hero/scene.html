@@ -1,0 +1,374 @@
+<!doctype html>
+<!--
+  ctxtree hero scene. Every visual is a pure function of one time variable:
+  window.renderAt(t) with t in seconds (0 to window.DURATION). build.mjs loads
+  this page in headless Chrome, calls renderAt for each frame and screenshots it.
+  Open it in a browser and add ?t=21 to the URL to inspect a single moment.
+
+  Spacing follows an 8 px grid. Font: Inter 500 and 700 (rsms/inter, SIL OFL 1.1,
+  see fonts/OFL.txt), latin subset woff2 files from the @fontsource/inter 5.0.18 npm package.
+  Agent marks in logos/ are used unmodified, only to identify each tool
+  (see logos/SOURCES.md); only whole tiles move or fade.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>ctxtree hero</title>
+<style>
+  @font-face { font-family: "Inter"; font-weight: 500; src: url("fonts/inter-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 700; src: url("fonts/inter-latin-700-normal.woff2") format("woff2"); }
+
+  :root {
+    --bg-top: #101729;
+    --bg-bottom: #0A0F1C;
+    --panel: #141B2D;
+    --panel-2: #10172A;
+    --line: rgba(255, 255, 255, 0.10);
+    --text: #F1F5F9;
+    --muted: #94A3B8;
+    --accent: #818CF8;
+    --accent-soft: #A5B4FC;
+    --red: #F87171;
+    --amber: #FBBF24;
+    --green: #34D399;
+    --note: #FEF3C7;
+    --note-ink: #3F2A06;
+  }
+
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { width: 1280px; height: 640px; overflow: hidden; }
+
+  #stage {
+    position: relative; width: 1280px; height: 640px; overflow: hidden;
+    border-radius: 32px;
+    background:
+      radial-gradient(640px 360px at 50% 64%, rgba(99, 102, 241, 0.16), rgba(99, 102, 241, 0) 70%),
+      linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+    font-family: "Inter", sans-serif; color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  #grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+    background-size: 32px 32px; background-position: 0 0;
+    -webkit-mask-image: radial-gradient(720px 400px at 50% 60%, #000 30%, transparent 80%);
+  }
+  #rim {
+    position: absolute; inset: 0; border-radius: 32px; pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+  }
+
+  /* captions: one at a time, centred in the top band (y 32 to 192) */
+  .caption {
+    position: absolute; left: 48px; right: 48px; top: 32px; height: 160px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; opacity: 0; will-change: opacity, transform;
+  }
+  .caption .l1 { font-size: 48px; line-height: 56px; font-weight: 700; letter-spacing: -0.02em; }
+  .caption .l2 { font-size: 44px; line-height: 56px; font-weight: 500; color: var(--muted); letter-spacing: -0.015em; }
+  .caption .brand { color: var(--accent-soft); }
+  #c5 .title { font-size: 88px; line-height: 96px; font-weight: 700; letter-spacing: -0.035em; }
+  #c5 .l2 { margin-top: 8px; }
+
+  /* agent cards */
+  .agent {
+    position: absolute; width: 320px; height: 112px; box-sizing: border-box;
+    display: flex; align-items: center; gap: 16px; padding: 0 24px;
+    border-radius: 24px;
+    background: linear-gradient(180deg, #182035 0%, #121a2c 100%);
+    box-shadow: inset 0 0 0 1px var(--line), 0 16px 40px rgba(0, 0, 0, 0.35);
+  }
+  .tile {
+    width: 64px; height: 64px; flex: none; border-radius: 16px; background: #FFFFFF;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  }
+  .tile img { width: 44px; height: 44px; display: block; }
+  .agent .name { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+
+  /* private notes */
+  .note {
+    position: absolute; width: 216px; height: 72px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 16px; background: var(--note); color: var(--note-ink);
+    font-size: 30px; font-weight: 700; letter-spacing: -0.01em;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    opacity: 0; will-change: opacity, transform, filter;
+  }
+  .note .ring {
+    position: absolute; inset: -4px; border-radius: 20px; border: 4px solid var(--red); opacity: 0;
+  }
+  .neq {
+    position: absolute; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
+    background: var(--red); box-shadow: 0 0 0 6px rgba(248, 113, 113, 0.18), 0 8px 24px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+  }
+
+  /* memory card, styled like an editor's file explorer */
+  #card {
+    position: absolute; left: 456px; top: 228px; width: 368px; height: 360px; box-sizing: border-box;
+    border-radius: 24px; overflow: hidden;
+    background: linear-gradient(180deg, #172036 0%, #111827 100%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 64px rgba(129, 140, 248, 0.14);
+    opacity: 0; will-change: opacity, transform;
+  }
+  #card .head {
+    height: 64px; display: flex; align-items: center; gap: 16px; padding: 0 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03);
+    font-size: 30px; font-weight: 700;
+  }
+  #card .rows { padding: 8px 0 0 0; }
+  #card .row {
+    height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 32px;
+    font-size: 28px; font-weight: 500; color: #CBD5E1; opacity: 0;
+  }
+  #card .row.index { color: var(--text); font-weight: 700; }
+  #card .pill {
+    position: absolute; left: 50%; bottom: 24px; height: 48px; padding: 0 24px 0 16px;
+    display: flex; align-items: center; gap: 8px; border-radius: 24px;
+    font-size: 28px; font-weight: 700; white-space: nowrap; opacity: 0;
+    transform: translateX(-50%);
+  }
+  #stale { background: rgba(251, 191, 36, 0.14); color: var(--amber); box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.55); }
+  #synced { background: rgba(52, 211, 153, 0.14); color: var(--green); box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.6); }
+
+  #wires { position: absolute; inset: 0; overflow: visible; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="grid"></div>
+
+  <svg id="wires" width="1280" height="640" viewBox="0 0 1280 640">
+    <defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="4" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <g id="wireGroup" filter="url(#glow)"></g>
+    <g id="pulseGroup"></g>
+  </svg>
+
+  <div class="caption" id="c1"><div class="l1">Every agent keeps its own notes.</div></div>
+  <div class="caption" id="c2"><div class="l1">They contradict each other</div><div class="l2">and vanish next session.</div></div>
+  <div class="caption" id="c3"><div class="l1"><span class="brand">ctxtree</span>: one memory tree, in your repo.</div></div>
+  <div class="caption" id="c4"><div class="l1">Every agent reads it.</div><div class="l2">It stays in sync with your code.</div></div>
+  <div class="caption" id="c5"><div class="title">ctxtree</div><div class="l2">One memory for every coding agent.</div></div>
+
+  <div id="agents"></div>
+  <div id="notes"></div>
+
+  <div id="card">
+    <div class="head">
+      <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M3 8a3 3 0 0 1 3-3h6.2l3 3H26a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" fill="#A5B4FC"/>
+        <path d="M3 12h26v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" fill="#818CF8"/>
+      </svg>
+      <span>memory/</span>
+    </div>
+    <div class="rows" id="rows"></div>
+    <div class="pill" id="stale">
+      <svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="11" fill="#FBBF24"/><rect x="12.5" y="7" width="3" height="9" rx="1.5" fill="#1F1500"/><circle cx="14" cy="20" r="1.8" fill="#1F1500"/></svg>
+      <span>stale</span>
+    </div>
+    <div class="pill" id="synced">
+      <svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="11" fill="#34D399"/><path d="M8.5 14.5l3.6 3.6 7.4-7.6" stroke="#04241A" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>synced</span>
+    </div>
+  </div>
+
+  <div id="neqs"></div>
+  <div id="rim"></div>
+</div>
+
+<script>
+// ------------------------------------------------------------------ data ---
+const DURATION = 24.0;
+window.DURATION = DURATION;
+window.POSTER_T = 22.0;
+
+// left column x 40, right column x 920 (cards 320 wide); rows centred on y 312 and 504
+const AGENTS = [
+  { name: "Claude Code", logo: "logos/claude-official.svg", x: 40,  y: 256, side: "L" },
+  { name: "OpenCode",    logo: "logos/opencode.svg",        x: 920, y: 256, side: "R" },
+  { name: "Codex",       logo: "logos/codex.svg",           x: 40,  y: 448, side: "L" },
+  { name: "Antigravity", logo: "logos/antigravity.png",     x: 920, y: 448, side: "R" },
+];
+// one short note per agent; the two rows contradict each other
+const NOTES = ["uses pnpm", "uses npm", "db: Postgres", "db: MySQL"];
+const FILES = ["INDEX.md", "stack.md", "log.md", "active-task.md"];
+
+// ------------------------------------------------------------- timeline ---
+// Beat 1  0.0 to 5.0   caption 1, notes appear one by one
+// Beat 2  5.0 to 9.2   caption 2, contradiction marks, notes vanish
+// Beat 3  9.2 to 13.2  caption 3, memory/ card builds in
+// Beat 4 13.2 to 18.2  caption 4, wires draw, pulses, stale flips to synced
+// Final  18.2 to 23.2  title and tagline, everything still (poster at 22.0)
+// Reset  23.2 to 24.0  fade back to the opening state (agents only)
+const TL = {
+  captions: [  // [fade in start, fade in end, fade out start, fade out end]
+    [0.3, 1.0, 4.4, 5.0],
+    [5.0, 5.7, 8.6, 9.2],
+    [9.2, 9.9, 12.6, 13.2],
+    [13.2, 13.9, 17.6, 18.2],
+    [18.2, 19.0, 23.2, 24.0],
+  ],
+  noteIn: [1.0, 1.6, 2.2, 2.8], noteDur: 0.6,
+  neq: [5.9, 6.5], vanish: [7.6, 8.4],
+  card: [9.9, 10.7], rows: 10.4, rowGap: 0.25, rowDur: 0.5,
+  wires: [14.0, 14.8], stale: [14.9, 15.4], pulses: [15.5, 16.4], flip: [16.4, 16.8],
+  reset: [23.2, 24.0],
+};
+
+// ---------------------------------------------------------------- build ---
+const $ = (id) => document.getElementById(id);
+const agentEls = AGENTS.map((a) => {
+  const el = document.createElement("div");
+  el.className = "agent";
+  el.style.left = a.x + "px"; el.style.top = a.y + "px";
+  el.innerHTML = `<div class="tile"><img src="${a.logo}" alt=""></div><div class="name">${a.name}</div>`;
+  $("agents").appendChild(el);
+  return el;
+});
+
+// note positions: between each agent and the centre, same row as the agent
+const NOTE_POS = AGENTS.map((a) => ({ x: a.side === "L" ? 376 : 688, y: a.y + 56 - 36 }));
+const noteEls = NOTES.map((txt, i) => {
+  const el = document.createElement("div");
+  el.className = "note"; el.textContent = txt;
+  el.style.left = NOTE_POS[i].x + "px"; el.style.top = NOTE_POS[i].y + "px";
+  const ring = document.createElement("div"); ring.className = "ring"; el.appendChild(ring);
+  $("notes").appendChild(el);
+  return el;
+});
+const neqEls = [312, 504].map((y) => {
+  const el = document.createElement("div");
+  el.className = "neq"; el.style.left = "640px"; el.style.top = y + "px";
+  el.innerHTML = `<svg width="56" height="56" viewBox="0 0 56 56"><g stroke="#fff" stroke-width="4.5" stroke-linecap="round">
+    <line x1="17" y1="23" x2="39" y2="23"/><line x1="17" y1="33" x2="39" y2="33"/><line x1="34" y1="14" x2="22" y2="42"/></g></svg>`;
+  $("neqs").appendChild(el);
+  return el;
+});
+const rowEls = FILES.map((f, i) => {
+  const el = document.createElement("div");
+  el.className = "row" + (i === 0 ? " index" : "");
+  el.innerHTML = `<svg width="24" height="28" viewBox="0 0 24 28" aria-hidden="true">
+      <path d="M3 3a2 2 0 0 1 2-2h9l7 7v17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="${i === 0 ? "#A5B4FC" : "#64748B"}" stroke-width="2"/>
+      <path d="M14 1v7h7" fill="none" stroke="${i === 0 ? "#A5B4FC" : "#64748B"}" stroke-width="2"/></svg><span>${f}</span>`;
+  $("rows").appendChild(el);
+  return el;
+});
+
+// wires: agent card inner edge to card edge, on the agent's row
+const NS = "http://www.w3.org/2000/svg";
+const WIRES = AGENTS.map((a) => {
+  const y = a.y + 56;
+  return a.side === "L" ? { x1: 360, x2: 456, y } : { x1: 920, x2: 824, y };
+});
+const wireEls = WIRES.map((w) => {
+  const g = document.createElementNS(NS, "g");
+  const line = document.createElementNS(NS, "line");
+  line.setAttribute("x1", w.x1); line.setAttribute("x2", w.x2);
+  line.setAttribute("y1", w.y); line.setAttribute("y2", w.y);
+  line.setAttribute("stroke-width", "4"); line.setAttribute("stroke-linecap", "round");
+  const len = Math.abs(w.x2 - w.x1);
+  line.setAttribute("stroke-dasharray", `${len} ${len}`);
+  const dot = document.createElementNS(NS, "circle");
+  dot.setAttribute("cx", w.x2); dot.setAttribute("cy", w.y); dot.setAttribute("r", "6");
+  g.appendChild(line); g.appendChild(dot);
+  $("wireGroup").appendChild(g);
+  return { g, line, dot, len };
+});
+const pulseEls = WIRES.map(() => {
+  const g = document.createElementNS(NS, "g");
+  g.innerHTML = `<circle r="16" fill="rgba(165,180,252,0.22)"/><circle r="8" fill="#EEF2FF"/>`;
+  $("pulseGroup").appendChild(g);
+  return g;
+});
+
+// --------------------------------------------------------------- easing ---
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const easeInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+const seg = (t, a, b, ease = easeInOut) => ease(clamp((t - a) / (b - a)));
+const mix = (a, b, x) => a + (b - a) * x;
+const mixColor = (c1, c2, x) => `rgb(${c1.map((v, i) => Math.round(mix(v, c2[i], x))).join(",")})`;
+
+// --------------------------------------------------------------- render ---
+function renderAt(t) {
+  // captions, one at a time; rise 8 px on the way in, lift 8 px on the way out
+  TL.captions.forEach(([a, b, c, d], i) => {
+    const vin = seg(t, a, b), vout = seg(t, c, d);
+    const el = $("c" + (i + 1));
+    el.style.opacity = (vin * (1 - vout)).toFixed(3);
+    el.style.transform = `translateY(${((1 - vin) * 8 - vout * 8).toFixed(2)}px)`;
+  });
+
+  // notes: slide out of their agent one by one, then vanish together
+  const vanish = seg(t, TL.vanish[0], TL.vanish[1]);
+  const neq = seg(t, TL.neq[0], TL.neq[1], easeOut);
+  noteEls.forEach((el, i) => {
+    const p = seg(t, TL.noteIn[i], TL.noteIn[i] + TL.noteDur, easeOut);
+    const dir = AGENTS[i].side === "L" ? -1 : 1;
+    el.style.opacity = (p * (1 - vanish)).toFixed(3);
+    el.style.transform = `translate(${(dir * 32 * (1 - p)).toFixed(2)}px, ${(-16 * vanish).toFixed(2)}px) scale(${mix(0.94, 1, p).toFixed(3)})`;
+    el.style.filter = vanish > 0 ? `blur(${(vanish * 8).toFixed(2)}px)` : "none";
+    el.querySelector(".ring").style.opacity = neq.toFixed(3);
+  });
+  neqEls.forEach((el) => {
+    el.style.opacity = (neq * (1 - vanish)).toFixed(3);
+    el.style.transform = `scale(${mix(0.6, 1, neq).toFixed(3)})`;
+  });
+
+  // memory card builds in, rows one by one
+  const reset = seg(t, TL.reset[0], TL.reset[1]);
+  const cardIn = seg(t, TL.card[0], TL.card[1]);
+  const card = $("card");
+  card.style.opacity = (cardIn * (1 - reset)).toFixed(3);
+  card.style.transform = `translateY(${((1 - cardIn) * 24).toFixed(2)}px) scale(${mix(0.96, 1, cardIn).toFixed(3)})`;
+  rowEls.forEach((el, i) => {
+    const a = TL.rows + i * TL.rowGap;
+    const p = seg(t, a, a + TL.rowDur, easeOut);
+    el.style.opacity = p.toFixed(3);
+    el.style.transform = `translateX(${((1 - p) * -16).toFixed(2)}px)`;
+  });
+
+  // wires draw in; they turn green once memory is synced
+  const flip = seg(t, TL.flip[0], TL.flip[1]);
+  const wireColor = mixColor([129, 140, 248], [52, 211, 153], flip);
+  wireEls.forEach((w) => {
+    const p = seg(t, TL.wires[0], TL.wires[1]);
+    w.line.setAttribute("stroke", wireColor);
+    w.line.setAttribute("stroke-dashoffset", (w.len * (1 - p)).toFixed(2));
+    w.dot.setAttribute("fill", wireColor);
+    w.dot.setAttribute("opacity", seg(t, TL.wires[1] - 0.2, TL.wires[1]).toFixed(3));
+    w.g.setAttribute("opacity", (p > 0 ? 1 - reset : 0).toFixed(3));
+  });
+
+  // pulses travel from every agent into the tree at the same time
+  const pp = clamp((t - TL.pulses[0]) / (TL.pulses[1] - TL.pulses[0]));
+  pulseEls.forEach((g, i) => {
+    const w = WIRES[i];
+    const x = mix(w.x1, w.x2, easeInOut(pp));
+    const fade = Math.min(1, 5 * Math.min(pp, 1 - pp));
+    g.setAttribute("transform", `translate(${x.toFixed(2)} ${w.y})`);
+    g.setAttribute("opacity", (pp > 0 && pp < 1 ? fade : 0).toFixed(3));
+  });
+
+  // status pill: stale, then synced
+  const stale = seg(t, TL.stale[0], TL.stale[1]) * (1 - flip);
+  $("stale").style.opacity = stale.toFixed(3);
+  $("synced").style.opacity = flip.toFixed(3);
+  const pop = 1 + 0.08 * Math.sin(Math.PI * clamp((t - TL.flip[0]) / 0.5));
+  $("synced").style.transform = `translateX(-50%) scale(${pop.toFixed(3)})`;
+}
+window.renderAt = renderAt;
+
+const q = new URLSearchParams(location.search).get("t");
+renderAt(q === null ? window.POSTER_T : parseFloat(q));
+</script>
+</body>
+</html>
