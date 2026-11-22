@@ -15,8 +15,24 @@ AH="$HOME/.config/ctxtree"; AM="$AH/pack/bin/ctxtree"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS + 1)); printf '  ok    %s\n' "$1"; }
 bad()  { FAIL=$((FAIL + 1)); printf '  FAIL  %s\n' "$1"; }
-t()    { local name="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$name"; else bad "$name"; fi; }
-tnot() { local name="$1"; shift; if "$@" >/dev/null 2>&1; then bad "$name"; else ok "$name"; fi; }
+# limited <cmd...>: run with stdin from /dev/null and a watchdog, so one hung
+# command fails its test instead of stalling the run (TEST_TIMEOUT seconds, 60).
+# TRACE=1 prints each test name before it runs, to locate a hang in CI logs.
+TIMED_OUT=0
+limited() {
+  local pid w rc
+  "$@" </dev/null >/dev/null 2>&1 &
+  pid=$!
+  ( sleep "${TEST_TIMEOUT:-60}"; kill -9 "$pid" 2>/dev/null && : > "$SANDBOX/.timeout" ) 2>/dev/null &
+  w=$!
+  wait "$pid"; rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  if [ -f "$SANDBOX/.timeout" ]; then rm -f "$SANDBOX/.timeout"; TIMED_OUT=1; return 124; fi
+  return "$rc"
+}
+trace() { [ "${TRACE:-0}" = 1 ] && printf '  ..    %s\n' "$1"; return 0; }
+t()    { local name="$1"; shift; trace "$name"; if limited "$@"; then ok "$name"; else bad "$name$([ "$TIMED_OUT" = 1 ] && echo ' (timed out)')"; TIMED_OUT=0; fi; }
+tnot() { local name="$1"; shift; trace "$name"; if limited "$@"; then bad "$name"; else if [ "$TIMED_OUT" = 1 ]; then bad "$name (timed out)"; TIMED_OUT=0; else ok "$name"; fi; fi; }
 group() { printf '\n%s\n' "$1"; }
 # Portable helpers (GNU, BSD/macOS, busybox, Git Bash).
 resolve() { local p="$1"; while [ -L "$p" ]; do local t; t="$(readlink "$p")"; case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac; done; printf '%s' "$p"; }
@@ -72,7 +88,7 @@ t "your own /task command kept, not replaced" sh -c "test ! -L '$HOME/.claude/co
 t "your own opencode /promote kept" grep -qx 'my own promote' "$HOME/.config/opencode/commands/promote.md"
 t "install log names what it kept" grep -q 'kept your own .*task.md' "$SANDBOX/install.log"
 t "dry run says it would keep your own items" grep -q 'would keep your own' "$SANDBOX/dry.log"
-t "GLOBAL.md managed block rendered" sh -c "grep -q 'ctxtree:begin' '$AH/GLOBAL.md' && grep -q '$AH/PROFILE.md' '$AH/GLOBAL.md' && ! grep -q '{{' '$AH/GLOBAL.md'"
+t "GLOBAL.md managed block rendered" sh -c "grep -q 'ctxtree:begin' '$AH/GLOBAL.md' && grep -q '$(native "$AH")/PROFILE.md' '$AH/GLOBAL.md' && ! grep -q '{{' '$AH/GLOBAL.md'"
 S="$HOME/.claude/settings.json"
 t "claude: existing hook kept" test "$(count '[.hooks.SessionStart[].hooks[].command] | map(select(. == "echo mine")) | length' "$S")" = 1
 t "claude: one ctxtree SessionStart hook" test "$(count '[.hooks.SessionStart[].hooks[].command] | map(select(test("ctxtree"))) | length' "$S")" = 1
@@ -172,7 +188,8 @@ t "init creates the tree at the git root" sh -c "cd '$SANDBOX/w/proj' && '$AM' i
 t "init made INDEX, log, topics, AGENTS.md" sh -c "cd '$SANDBOX/w/proj' && test -f memory/INDEX.md -a -f memory/log.md -a -f memory/api.md -a -f memory/web-app.md -a -f AGENTS.md"
 t "init rendered placeholders" sh -c "! grep -rq '{{' '$SANDBOX/w/proj/memory' '$SANDBOX/w/proj/AGENTS.md'"
 t "init added a registry row" grep -q "$SANDBOX/w/proj/memory/INDEX.md" "$AH/registry.md"
-tnot "init refuses to overwrite a tree" sh -c "cd '$SANDBOX/w/proj' && '$AM' init"
+t "init refuses to overwrite a tree" sh -c "cd '$SANDBOX/w/proj' && ! '$AM' init 2>'$SANDBOX/init.err' && grep -q 'already exists' '$SANDBOX/init.err'"
+t "init accepts the git root on every platform" sh -c "cd '$SANDBOX/w/proj' && test \"\$('$AM' where)\" = \"\$(pwd -P)\""
 t "fresh tree passes check" sh -c "cd '$SANDBOX/w/proj' && '$AM' check"
 
 group "check guardrails"

@@ -78,12 +78,18 @@ to_unix() {
   esac
 }
 
+# git_top <dir>: the git root in this shell's path form (git prints C:/x on
+# Windows while pwd prints /c/x), or nothing outside a repo.
+git_top() {
+  local t; t="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 0
+  [ -n "$t" ] && canon "$(to_unix "$t")"
+}
+
 # find_root <dir>: print the memory root for dir, or nothing.
 find_root() {
   local cwd top dir
   cwd="$(canon "$1")"
-  top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
-  [ -n "$top" ] && top="$(canon "$(to_unix "$top")")"   # git prints C:/x on Windows; pwd prints /c/x
+  top="$(git_top "$cwd")"
   dir="$cwd"
   while [ -n "$dir" ]; do
     if [ -f "$dir/memory/INDEX.md" ]; then printf '%s' "$dir"; return 0; fi
@@ -301,7 +307,7 @@ check_global() {
 
 check_staged() {
   local top f kind code=0 mem=0 st
-  top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not in a git repo"
+  top="$(git_top "$PWD")"; [ -n "$top" ] || die "not in a git repo"
   while IFS= read -r f; do
     case "$f" in
       memory/*|*/memory/*)
@@ -352,7 +358,7 @@ cmd_init() {
   here="$(canon "$PWD")"
   # Guardrail: never create project memory or AGENTS.md above a project root.
   case "$here" in "/"|"$(canon "$HOME")") die "refusing to create project memory in $here (above any project root)" ;; esac
-  top="$(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true)"
+  top="$(git_top "$here")"
   if [ "$force" = 0 ]; then
     [ -z "$top" ] && die "$here is not a git repo; run git init first or pass --force"
     [ "$top" != "$here" ] && die "run init at the git root ($top), or pass --force"
