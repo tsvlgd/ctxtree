@@ -130,7 +130,9 @@ t "profile edit kept" grep -qx -- "- my own rule" "$AH/PROFILE.md"
 t "user section edit kept" grep -qx -- "- always write tests first" "$AH/GLOBAL.md"
 t "managed block restored" sh -c "! grep -q tampered '$AH/GLOBAL.md' && grep -q '^- Lookup: ' '$AH/GLOBAL.md'"
 t "rules imported once across reinstalls" test "$(grep -cx 'my old claude rules' "$AH/GLOBAL.md")" = 1
-t "foreign files not backed up twice" test "$(grep -rlx 'my old claude rules' "$AH/backups" | wc -l)" = 1
+dupes="$(grep -rlx 'my old claude rules' "$AH/backups")"
+t "foreign files not backed up twice" test "$(printf '%s\n' "$dupes" | grep -c .)" = 1
+[ "$(printf '%s\n' "$dupes" | grep -c .)" = 1 ] || { echo "        matching backups:"; printf '%s\n' "$dupes" | sed "s|$AH|        ~ctxtree|"; ls -laR "$AH/backups" | sed 's/^/        /' | head -40; }
 
 group "lookup rule"
 mkrepo "$SANDBOX/w/app"
@@ -187,7 +189,7 @@ tnot "init refuses below the git root" sh -c "cd '$SANDBOX/w/proj/sub' && '$AM' 
 t "init creates the tree at the git root" sh -c "cd '$SANDBOX/w/proj' && '$AM' init api 'web app'"
 t "init made INDEX, log, topics, AGENTS.md" sh -c "cd '$SANDBOX/w/proj' && test -f memory/INDEX.md -a -f memory/log.md -a -f memory/api.md -a -f memory/web-app.md -a -f AGENTS.md"
 t "init rendered placeholders" sh -c "! grep -rq '{{' '$SANDBOX/w/proj/memory' '$SANDBOX/w/proj/AGENTS.md'"
-t "init added a registry row" grep -q "$SANDBOX/w/proj/memory/INDEX.md" "$AH/registry.md"
+t "init added a registry row (native path)" grep -qF "| $(native "$(cd "$SANDBOX/w/proj" && pwd -P)")/memory/INDEX.md |" "$AH/registry.md"
 t "init refuses to overwrite a tree" sh -c "cd '$SANDBOX/w/proj' && ! '$AM' init 2>'$SANDBOX/init.err' && grep -q 'already exists' '$SANDBOX/init.err'"
 t "init accepts the git root on every platform" sh -c "cd '$SANDBOX/w/proj' && test \"\$('$AM' where)\" = \"\$(pwd -P)\""
 t "fresh tree passes check" sh -c "cd '$SANDBOX/w/proj' && '$AM' check"

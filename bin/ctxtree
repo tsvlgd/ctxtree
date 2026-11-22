@@ -384,9 +384,10 @@ cmd_init() {
     echo "created AGENTS.md"
   fi
   reg="$CTXTREE_HOME/registry.md"
-  if [ -f "$reg" ] && ! grep -qF "| $here/memory/INDEX.md |" "$reg"; then
+  local idx; idx="$(native_path "$here")/memory/INDEX.md"   # agents on Windows need C:/x
+  if [ -f "$reg" ] && ! grep -qF "| $idx |" "$reg"; then
     local row
-    row="$(printf '| %s | %s | %s/memory/INDEX.md |' "$name" "$(printf '%s' "$name" | tr 'A-Z' 'a-z')" "$here")"
+    row="$(printf '| %s | %s | %s |' "$name" "$(printf '%s' "$name" | tr 'A-Z' 'a-z')" "$idx")"
     awk -v row="$row" 'done==0 && /^\|/ {intable=1} done==0 && intable && !/^\|/ {print row; done=1} {print} END {if (!done) print row}' \
       "$reg" > "$reg.tmp" && mv "$reg.tmp" "$reg"
     echo "registry row added in $reg"
