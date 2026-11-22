@@ -209,6 +209,25 @@ t "init refuses to overwrite a tree" sh -c "cd '$SANDBOX/w/proj' && ! '$AM' init
 t "init accepts the git root on every platform" sh -c "cd '$SANDBOX/w/proj' && test \"\$('$AM' where)\" = \"\$(pwd -P)\""
 t "fresh tree passes check" sh -c "cd '$SANDBOX/w/proj' && '$AM' check"
 
+group "init --private (memory kept out of git on this machine)"
+V="$SANDBOX/w/private"; mkdir -p "$V"; git -C "$V" init -q -b main
+t "init --private creates the tree and says it is private" sh -c "cd '$V' && '$AM' init --private api | grep -q 'memory/ is private'"
+t "memory/ listed in .git/info/exclude" grep -qx '/memory/' "$V/.git/info/exclude"
+t "git does not see the private memory" test -z "$(git -C "$V" status --porcelain -- memory)"
+t "the repo's .gitignore is untouched" test ! -e "$V/.gitignore"
+t "init --private again is safe on an existing tree" sh -c "cd '$V' && '$AM' init --private"
+t "exclude line written once" test "$(grep -cx '/memory/' "$V/.git/info/exclude")" = 1
+age_tree "$(( $(date +%s) - 86400 ))" "$V/memory"
+echo x > "$V/a.txt"; git -C "$V" add a.txt; git -C "$V" -c core.hooksPath=/dev/null commit -qm "feat: a"
+t "private memory still goes stale after a code commit" test "$(cd "$V" && "$AM" status)" = "stale 1"
+touch "$V/memory/INDEX.md"
+t "editing private memory makes it fresh" test "$(cd "$V" && "$AM" status)" = fresh
+mkrepo "$SANDBOX/w/tracked"
+t "init --private on tracked memory explains how to untrack" sh -c "cd '$SANDBOX/w/tracked' && '$AM' init --private | grep -q 'git rm -r --cached memory'"
+t "init --private never untracks anything itself" test -n "$(git -C "$SANDBOX/w/tracked" ls-files memory)"
+mkdir -p "$SANDBOX/w/nogit"
+tnot "init --private outside git refuses" sh -c "cd '$SANDBOX/w/nogit' && '$AM' init --private --force"
+
 group "check guardrails"
 C="$SANDBOX/w/proj/memory"
 echo 'api_key = "sk-live-0123456789abcdefghijABCDEF"' >> "$C/api.md"
