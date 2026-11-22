@@ -152,6 +152,14 @@ t "nested repo does not see the parent tree" test -z "$("$AM" where "$SANDBOX/w/
 t "non git folder with a tree finds it" test -n "$("$AM" where "$SANDBOX/w/plain")"
 t "non git subfolder does not walk up" test -z "$("$AM" where "$SANDBOX/w/plain/sub")"
 t "folder without a tree finds nothing" test "$(cd "$SANDBOX/w/empty" && "$AM" status)" = none
+mkrepo "$SANDBOX/w/pretty"
+printf '# Active task: ship it\n\n## Phases\n- [x] 1. a\n- [ ] 2. b  <- next: run the tests\n' > "$SANDBOX/w/pretty/memory/active-task.md"
+P="$(cd "$SANDBOX/w/pretty" && CTXTREE_PRETTY=1 NO_COLOR=1 "$AM" status)"
+t "status at a terminal keeps the machine word first" sh -c "printf '%s\n' \"\$1\" | head -n 1 | grep -Eqx 'fresh|stale [0-9]+'" _ "$P"
+t "status at a terminal shows project, memory and next step" sh -c "printf '%s\n' \"\$1\" | grep -q '^project  pretty' && printf '%s\n' \"\$1\" | grep -q '^memory   updated' && printf '%s\n' \"\$1\" | grep -qx 'next     run the tests'" _ "$P"
+t "NO_COLOR turns colour off" sh -c "! printf '%s' \"\$1\" | grep -q \"\$(printf '\\033')\"" _ "$P"
+t "colour only for a person at a terminal" sh -c "cd '$SANDBOX/w/pretty' && CTXTREE_PRETTY=1 '$AM' status | grep -q \"\$(printf '\\033')\" && ! '$AM' status | grep -q \"\$(printf '\\033')\""
+t "piped doctor output stays plain" sh -c "! '$AM' doctor | grep -q \"\$(printf '\\033')\" && '$AM' doctor | grep -q '^OK    '"
 
 group "sync: staleness, session start, stop hook"
 R="$SANDBOX/w/app"

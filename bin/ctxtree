@@ -6,7 +6,7 @@
 #                               PROFILE.md with --profile, for agents that cannot
 #                               import files), or block a stop once while memory
 #                               is behind the code
-#   ctxtree status [dir]       none | fresh | stale <n>
+#   ctxtree status [dir]       none | fresh | stale <n>  (plus details at a terminal)
 #   ctxtree where [dir]        print the memory root for dir (empty if none)
 #   ctxtree check [dir]        lint a memory tree (secrets, sizes, broken links)
 #   ctxtree check --staged     same, on staged files (git pre-commit)
@@ -222,11 +222,49 @@ cmd_context() {
 }
 
 # ---------------------------------------------------------------- status / where
+# Display only. A person at a terminal (or CTXTREE_PRETTY=1) gets details and colour;
+# agents, hooks, pipes and scripts get the plain output, byte for byte. NO_COLOR is honoured.
+pretty() { [ -t 1 ] || [ "${CTXTREE_PRETTY:-0}" = 1 ]; }
+colors() {
+  if pretty && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then
+    C_G=$'\033[32m'; C_R=$'\033[31m'; C_Y=$'\033[33m'; C_D=$'\033[2m'; C_N=$'\033[0m'
+  else C_G=""; C_R=""; C_Y=""; C_D=""; C_N=""; fi
+}
+tilde() { case "$1" in "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;; *) printf '%s' "$1" ;; esac; }
+
 cmd_status() {
   local root; root="$(find_root "${1:-$PWD}")"
-  [ -z "$root" ] && { echo "none"; return 0; }
+  colors
+  if [ -z "$root" ]; then
+    echo "none"
+    if pretty; then echo "no memory/ tree here; run /memory-init at the project's git root"; fi
+    return 0
+  fi
   staleness "$root"
-  if [ "$BEHIND" -gt 0 ]; then echo "stale $BEHIND"; else echo "fresh"; fi
+  # First line stays the machine word (/catchup and scripts read it).
+  if [ "$BEHIND" -gt 0 ]; then echo "${C_Y}stale $BEHIND${C_N}"; else echo "${C_G}fresh${C_N}"; fi
+  if pretty; then status_detail "$root"; fi
+  return 0
+}
+
+status_detail() {
+  local root="$1" at="$1/memory/active-task.md" task next
+  printf '%sproject%s  %s  %s(%s)%s\n' "$C_D" "$C_N" "$(basename "$root")" "$C_D" "$(tilde "$root")" "$C_N"
+  if [ "$LAST" -gt 0 ]; then
+    printf '%smemory%s   updated %s' "$C_D" "$C_N" "$(fmt_date "$LAST")"
+    if [ "$BEHIND" -gt 0 ]; then printf ', %s commit(s) behind: update the topic file, log.md and INDEX' "$BEHIND"; fi
+    echo
+  fi
+  if [ -f "$at" ]; then
+    task="$(sed -n 's/^# Active task: *//p' "$at" | head -n 1)"
+    next="$(sed -n 's/.*<- next: *//p' "$at" | head -n 1)"
+    [ -n "$next" ] || next="$(sed -n 's/^- \[ \] *//p' "$at" | head -n 1)"
+    printf '%stask%s     %s\n' "$C_D" "$C_N" "${task:-in flight}"
+    if [ -n "$next" ]; then printf '%snext%s     %s\n' "$C_D" "$C_N" "$next"; fi
+  else
+    printf '%stask%s     none (start one with /task <goal>)\n' "$C_D" "$C_N"
+  fi
+  return 0
 }
 cmd_where() { find_root "${1:-$PWD}"; echo; }
 
@@ -398,8 +436,9 @@ cmd_init() {
 # ---------------------------------------------------------------- doctor
 cmd_doctor() {
   local ok=0 bad=0 f
-  pass() { printf 'OK    %s\n' "$*"; ok=$((ok + 1)); }
-  fail() { printf 'FAIL  %s\n' "$*"; bad=$((bad + 1)); }
+  colors
+  pass() { printf '%sOK%s    %s\n' "$C_G" "$C_N" "$*"; ok=$((ok + 1)); }
+  fail() { printf '%sFAIL%s  %s\n' "$C_R" "$C_N" "$*"; bad=$((bad + 1)); }
   # A link, or (where links are unavailable) a file the installer manages that points at the target.
   linked() { { [ -L "$1" ] && [ "$(canon "$(dirname "$(resolve "$1")")")/$(basename "$(resolve "$1")")" = "$(canon "$(dirname "$2")")/$(basename "$2")" ]; } || grep -qF "ctxtree:managed" "$1" 2>/dev/null; }
   has() { [ -f "$1" ] && grep -Eq "$2" "$1"; }
