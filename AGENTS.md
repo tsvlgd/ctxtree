@@ -25,6 +25,13 @@ If the user asks you to install or set up ctxtree on their machine, follow `INST
 - Never displace the user's setup: existing rules are imported, their own same name items are kept, their repos' git hooks keep running. Test each case against a HOME that already has them.
 - No emojis. No hyphens in prose.
 
+## Branches, commits and pull requests
+
+- Never commit to `main` directly. One branch per change, named `<type>/<short-slug>` (for example `feat/opencode-plugin`, `fix/windows-registry-path`, `docs/hero-gif`).
+- Commit messages follow Conventional Commits: `<type>(<optional scope>): <summary>` in the imperative, under 72 characters, with a body that says why. Types: `feat`, `fix`, `docs`, `test`, `ci`, `refactor`, `perf`, `chore`. A breaking change adds `!` after the type and a `BREAKING CHANGE:` footer.
+- Open a pull request into `main` with a title in the same format. CI (Linux, macOS, Windows, bash 3.2) must pass before merging. Squash merge, so `main` keeps one conventional commit per change.
+- For parallel work use a git worktree per branch, and remove it after the merge.
+
 ## Memory
 
 Project facts, decisions and state live in `memory/`. Stable decisions live in `docs/DECISIONS.md`; memory keeps pointers.

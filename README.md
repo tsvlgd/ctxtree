@@ -196,7 +196,7 @@ bash tests/run.sh          # the full suite in a throwaway HOME; never touches y
 bash tests/live-smoke.sh   # optional: real Claude Code and OpenCode, a few model calls
 ```
 
-CI runs the suite on Linux, macOS and Windows, and under bash 3.2 with busybox tools. Design notes: [Architecture](docs/ARCHITECTURE.md), [Decisions](docs/DECISIONS.md), [Flows](docs/FLOWS.md), [Operations](docs/OPERATIONS.md).
+CI runs the suite on Linux, macOS and Windows, and under bash 3.2 with busybox tools. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches and commits. Design notes: [Architecture](docs/ARCHITECTURE.md), [Decisions](docs/DECISIONS.md), [Flows](docs/FLOWS.md), [Operations](docs/OPERATIONS.md).
 
 ## Acknowledgements
 
