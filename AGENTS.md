@@ -4,7 +4,7 @@ Project: ctxtree, an installable pack that gives several coding agents one share
 
 ## Read first
 
-- `memory/INDEX.md` (state and next), `README.md` (what and how), `docs/ARCHITECTURE.md` (parts), `docs/DECISIONS.md` (why).
+- `memory/INDEX.md` if you have one (state and next; private to each developer, not in git), `README.md` (what and how), `docs/ARCHITECTURE.md` (parts), `docs/DECISIONS.md` (why).
 
 ## Installing for a user
 
@@ -34,4 +34,4 @@ If the user asks you to install or set up ctxtree on their machine, follow `INST
 
 ## Memory
 
-Project facts, decisions and state live in `memory/`. Stable decisions live in `docs/DECISIONS.md`; memory keeps pointers.
+This repo keeps project memory private: each developer's `memory/` stays on their machine (`ctxtree init --private`). Stable decisions live in `docs/DECISIONS.md`, which is the shared record; memory keeps pointers. Starting files: `templates/memory/`.

@@ -11,8 +11,10 @@
 #   ctxtree check [dir]        lint a memory tree (secrets, sizes, broken links)
 #   ctxtree check --staged     same, on staged files (git pre-commit)
 #   ctxtree check --global     lint the global files (rules, profile, registry)
-#   ctxtree init [--name N] [--force] [topic...]
-#                               create memory/ (and AGENTS.md if missing) here
+#   ctxtree init [--name N] [--force] [--private] [topic...]
+#                               create memory/ (and AGENTS.md if missing) here;
+#                               --private keeps memory/ out of git on this machine
+#                               (also works on an existing tree)
 #   ctxtree doctor             verify the install for every configured agent
 #   ctxtree sync               refresh managed copies of the global rules
 #                               (used where symlinks are unavailable; also runs
@@ -383,12 +385,30 @@ cmd_check() {
 # ---------------------------------------------------------------- init
 pack_dir() { cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")/.." && pwd; }
 
+# make_private <dir> <git top>: keep <dir>/memory out of git on this machine only.
+# .git/info/exclude is never committed, so the repo's .gitignore and teammates are untouched.
+make_private() {
+  local here="$1" top="$2" ex pat
+  ex="$(git -C "$here" rev-parse --git-path info/exclude 2>/dev/null)" || die "cannot find .git/info/exclude"
+  case "$ex" in /*) ;; *) ex="$here/$ex" ;; esac
+  if [ "$here" = "$top" ]; then pat="/memory/"; else pat="/${here#"$top"/}/memory/"; fi
+  mkdir -p "$(dirname "$ex")"
+  grep -qxF "$pat" "$ex" 2>/dev/null || printf '%s\n' "$pat" >> "$ex"
+  echo "memory/ is private: listed in .git/info/exclude (this machine only, never committed)"
+  if [ -n "$(git -C "$here" ls-files -- memory 2>/dev/null | head -n 1)" ]; then
+    echo "memory/ is already tracked in git. To stop sharing it (your files stay on disk):"
+    echo "  git rm -r --cached memory && git commit -m 'chore(memory): keep project memory local'"
+  fi
+  return 0
+}
+
 cmd_init() {
-  local name="" force=0 topics=() here top tpl today slug reg t
+  local name="" force=0 private=0 topics=() here top tpl today slug reg t
   while [ $# -gt 0 ]; do
     case "$1" in
       --name) name="${2:-}"; shift 2 ;;
       --force) force=1; shift ;;
+      --private) private=1; shift ;;
       -*) die "unknown option $1" ;;
       *) topics+=("$1"); shift ;;
     esac
@@ -400,6 +420,11 @@ cmd_init() {
   if [ "$force" = 0 ]; then
     [ -z "$top" ] && die "$here is not a git repo; run git init first or pass --force"
     [ "$top" != "$here" ] && die "run init at the git root ($top), or pass --force"
+  fi
+  if [ "$private" = 1 ]; then
+    [ -n "$top" ] || die "--private needs a git repo (it lists memory/ in .git/info/exclude)"
+    make_private "$here" "$top"
+    [ -f "$here/memory/INDEX.md" ] && return 0
   fi
   [ -f "$here/memory/INDEX.md" ] && die "memory/INDEX.md already exists; not overwriting"
   [ -z "$name" ] && name="$(basename "$here")"

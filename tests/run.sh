@@ -209,6 +209,25 @@ t "init refuses to overwrite a tree" sh -c "cd '$SANDBOX/w/proj' && ! '$AM' init
 t "init accepts the git root on every platform" sh -c "cd '$SANDBOX/w/proj' && test \"\$('$AM' where)\" = \"\$(pwd -P)\""
 t "fresh tree passes check" sh -c "cd '$SANDBOX/w/proj' && '$AM' check"
 
+group "init --private (memory kept out of git on this machine)"
+V="$SANDBOX/w/private"; mkdir -p "$V"; git -C "$V" init -q -b main
+t "init --private creates the tree and says it is private" sh -c "cd '$V' && '$AM' init --private api | grep -q 'memory/ is private'"
+t "memory/ listed in .git/info/exclude" grep -qx '/memory/' "$V/.git/info/exclude"
+t "git does not see the private memory" test -z "$(git -C "$V" status --porcelain -- memory)"
+t "the repo's .gitignore is untouched" test ! -e "$V/.gitignore"
+t "init --private again is safe on an existing tree" sh -c "cd '$V' && '$AM' init --private"
+t "exclude line written once" test "$(grep -cx '/memory/' "$V/.git/info/exclude")" = 1
+age_tree "$(( $(date +%s) - 86400 ))" "$V/memory"
+echo x > "$V/a.txt"; git -C "$V" add a.txt; git -C "$V" -c core.hooksPath=/dev/null commit -qm "feat: a"
+t "private memory still goes stale after a code commit" test "$(cd "$V" && "$AM" status)" = "stale 1"
+touch "$V/memory/INDEX.md"
+t "editing private memory makes it fresh" test "$(cd "$V" && "$AM" status)" = fresh
+mkrepo "$SANDBOX/w/tracked"
+t "init --private on tracked memory explains how to untrack" sh -c "cd '$SANDBOX/w/tracked' && '$AM' init --private | grep -q 'git rm -r --cached memory'"
+t "init --private never untracks anything itself" test -n "$(git -C "$SANDBOX/w/tracked" ls-files memory)"
+mkdir -p "$SANDBOX/w/nogit"
+tnot "init --private outside git refuses" sh -c "cd '$SANDBOX/w/nogit' && '$AM' init --private --force"
+
 group "check guardrails"
 C="$SANDBOX/w/proj/memory"
 echo 'api_key = "sk-live-0123456789abcdefghijABCDEF"' >> "$C/api.md"
@@ -308,6 +327,8 @@ t "scripts parse" sh -c "bash -n bin/ctxtree && bash -n install.sh && for f in g
 t "every git hook file is executable" sh -c "! find git-hooks -type f ! -perm -u+x | grep -q ."
 t "scripts are checked out with LF endings" sh -c "! grep -l \"\$(printf '\r')\" bin/ctxtree install.sh git-hooks/pre-commit tests/run.sh"
 t ".gitattributes forces LF for scripts" grep -q 'eol=lf' .gitattributes
+t "/memory-init offers shared or private memory" grep -q 'ctxtree init --private' commands/memory-init.md
+t "no instruction tells agents to commit private memory" sh -c "! grep -n -iE 'commit (the )?memory|memory with the work' core/protocol.md commands/*.md skills/memory-tree/SKILL.md templates/AGENTS.md | grep -v -i 'private'"
 t "every command has a description" sh -c "for f in commands/*.md; do sed -n 2p \"\$f\" | grep -q '^description: ' || exit 1; done"
 t "every skill has name and description" sh -c "for f in skills/*/SKILL.md; do grep -q '^name: ' \"\$f\" && grep -q '^description: ' \"\$f\" || exit 1; done"
 t "README and AGENTS.md point agents at INSTALL.md" sh -c "grep -q 'INSTALL.md' README.md && grep -q 'INSTALL.md' AGENTS.md"

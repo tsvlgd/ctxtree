@@ -5,7 +5,7 @@ description: The standard for project memory shared by every coding agent. A lay
 
 # Memory tree
 
-One plain Markdown folder per project, `./memory/`, committed with the code. Every agent reads and writes the same files, so nothing depends on one tool's private memory. This tree is the only project store.
+One plain Markdown folder per project, `./memory/`, committed with the code by default, or kept on this machine only (`ctxtree init --private`, listed in `.git/info/exclude`). Every agent reads and writes the same files, so nothing depends on one tool's private memory. This tree is the only project store.
 
 ## The tree
 
@@ -74,7 +74,7 @@ Rules while it exists:
 2. Update INDEX "Where we are" (dated) and "Next", 5 lines each at most.
 3. Move anything stable from `log.md` into its topic file.
 4. Run `ctxtree check`; fix errors.
-5. Commit memory with the work (same commit or PR).
+5. Commit memory with the work (same commit or PR), unless the tree is private (listed in `.git/info/exclude`); then saving the files is enough.
 6. Cross project preferences or lessons: propose them with `/promote`; never write global files silently.
 
 `/learn` runs this step on demand.

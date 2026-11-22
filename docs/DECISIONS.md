@@ -5,8 +5,16 @@ Why the pack is the way it is. Newest first. A changed decision gets a new recor
 ```mermaid
 timeline
   title ctxtree decisions
-  2026-11-22 : D1 plain files : D2 git root lookup : D3 managed block : D4 profile separate : D5 Stop once per state : D6 per agent wiring : D7 planning in one file : D8 one bash code path : D9 install around the user
+  2026-11-22 : D1 plain files : D2 git root lookup : D3 managed block : D4 profile separate : D5 Stop once per state : D6 per agent wiring : D7 planning in one file : D8 one bash code path : D9 install around the user : D10 private memory option
 ```
+
+## D10: memory can be private to one machine (2026-11-22)
+
+- Status: accepted; amends D1, which stays the default
+- Context: committed memory suits teams and open source, but solo work, client code and public repos with private notes need memory that never leaves the machine.
+- Decision: `ctxtree init --private` lists `memory/` in `.git/info/exclude`; `/memory-init` asks once. Instructions say to commit memory unless it is private. Existing tracked memory is never untracked automatically; the command is printed instead.
+- Alternatives: a committed `.gitignore` entry (changes the repo for everyone); a separate memory repo (more setup, a second remote).
+- Consequences: private memory has no backup or review; staleness falls back to file times, which the existing check already supports. Moving between branches where `memory/` is tracked on one and not the other can overwrite or delete the local files, so back it up before untracking.
 
 ## D9: install around the user's setup, never over it (2026-11-22)
 
