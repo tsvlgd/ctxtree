@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/hero.gif" alt="Claude Code, OpenCode, Codex and Antigravity each keep their own notes, which contradict each other and vanish; ctxtree gives them one memory tree in the repo that every agent reads and that stays in sync with the code" width="100%">
+  <img src="docs/assets/hero.gif" alt="An agent's context window starts empty, then overflows; agents keep copies that disagree and go stale when the code changes. ctxtree gives every fact one home, loads only what the task needs, keeps memory in sync with the code, and shares it with every agent." width="100%">
 </p>
 
 <h1 align="center">ctxtree</h1>
@@ -220,4 +220,4 @@ Planning in files is inspired by [planning-with-files](https://github.com/othman
 
 [MIT](LICENSE)
 
-ctxtree is an independent open source project, not affiliated with or endorsed by Anthropic, OpenCode, OpenAI or Google. Their marks appear only to identify the tools ctxtree works with; sources in [docs/assets/hero/logos/SOURCES.md](docs/assets/hero/logos/SOURCES.md).
+ctxtree is an independent open source project, not affiliated with or endorsed by Anthropic, OpenCode, OpenAI or Google. Their marks appear unmodified, only to identify the tools ctxtree works with, taken from official sources: claude.com/icon.svg, opencode.ai/brand, the OpenAI mark from chatgpt.com/codex (no standalone Codex mark is published), and antigravity.google.
