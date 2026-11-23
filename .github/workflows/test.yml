@@ -1,9 +1,18 @@
 name: test
 
+# Once per change: pull requests run the suite, and main runs it again after a
+# merge. Branch pushes alone do not, so a PR is not tested twice. A newer push
+# to the same PR or branch cancels the run it replaces. (Private repo minutes:
+# macOS counts 10x and Windows 2x.)
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   suite:
